@@ -30,30 +30,44 @@ namespace Cosmos.Resource
         ResourceLoadMode ResourceLoadMode { get; }
         /// <summary>
         /// 请求资源文件清单成功事件
+        /// <para>开始请求<see cref="StartRequestManifest"/></para>
+        /// <para>结束请求<see cref="StopRequestManifest"/></para>
         /// </summary>
         event Action<ResourceRequestManifestSuccessEventArgs> ResourceRequestManifestSuccess;
         /// <summary>
         /// 请求资源文件清单失败事件
+        /// <para>开始请求<see cref="StartRequestManifest"/></para>
+        /// <para>结束请求<see cref="StopRequestManifest"/></para>
         /// </summary>
         event Action<ResourceRequestManifestFailureEventArgs> ResourceRequestManifestFailure;
         /// <summary>
         /// 任务下载成功事件
+        /// <para>添加下载任务<see cref="AddResourceDownloadTask"/></para>
+        /// <para>移除下载任务<see cref="RemoveResourceDownloadTask"/></para>
         /// </summary>
         event Action<ResourceDownloadSuccessEventArgs> OnDownloadSuccess;
         /// <summary>
         /// 任务下载失败事件
+        /// <para>添加下载任务<see cref="AddResourceDownloadTask"/></para>
+        /// <para>移除下载任务<see cref="RemoveResourceDownloadTask"/></para>
         /// </summary>
         event Action<ResourceDownloadFailureEventArgs> OnDownloadFailure;
         /// <summary>
         /// 整体任务下载更新事件
+        /// <para>添加下载任务<see cref="AddResourceDownloadTask"/></para>
+        /// <para>移除下载任务<see cref="RemoveResourceDownloadTask"/></para>
         /// </summary>
         event Action<ResourceDownloadUpdateEventArgs> OnDownloadUpdate;
         /// <summary>
         /// 所有任务完成事件
+        /// <para>添加下载任务<see cref="AddResourceDownloadTask"/></para>
+        /// <para>移除下载任务<see cref="RemoveResourceDownloadTask"/></para>
         /// </summary>
         event Action<ResourceDownloadCompeleteEventArgs> OnDownloadComplete;
         /// <summary>
         /// 下载任务取消回调
+        /// <para>添加下载任务<see cref="AddResourceDownloadTask"/></para>
+        /// <para>移除下载任务<see cref="RemoveResourceDownloadTask"/></para>
         /// </summary>
         event Action<ResourceDownloadTasksCancelEventArgs> OnDownloadCancel;
         /// <summary>
@@ -178,21 +192,21 @@ namespace Cosmos.Resource
         /// <summary>
         /// 加载场景（异步），增加一个引用计数
         /// </summary>
-        /// <param name="info">资源信息</param>
+        /// <param name="sceneAssetInfo">资源信息</param>
         /// <param name="progress">加载场景进度回调</param>
         /// <param name="condition">场景加载完成的条件</param>
         /// <param name="callback">场景加载完毕回调</param>
         /// <returns>协程对象</returns>
-        Coroutine LoadSceneAsync(SceneAssetInfo info, Func<float> progressProvider, Action<float> progress, Func<bool> condition, Action callback);
+        Coroutine LoadSceneAsync(SceneAssetInfo sceneAssetInfo, Func<float> progressProvider, Action<float> progress, Func<bool> condition, Action callback);
         /// <summary>
         /// 卸载场景（异步），增加一个引用计数
         /// </summary>
-        /// <param name="info">资源信息</param>
+        /// <param name="sceneAssetInfo">资源信息</param>
         /// <param name="progress">卸载场景的进度</param>
         /// <param name="condition">卸载场景完成的条件</param>
         /// <param name="callback">场景卸载完毕后的回调<</param>
         /// <returns>协程对象</returns>
-        Coroutine UnloadSceneAsync(SceneAssetInfo info, Action<float> progress, Func<bool> condition, Action callback);
+        Coroutine UnloadSceneAsync(SceneAssetInfo sceneAssetInfo, Action<float> progress, Func<bool> condition, Action callback);
         /// <summary>
         /// 卸载资源（同步），减少一个引用计数
         /// </summary>
