@@ -6,13 +6,14 @@ namespace Cosmos.WebRequest
 {
     //================================================
     /*
-     * 1、WebRequest用于加载AssetBundle资源。资源状态可以是Remote的，
-    *  也可以是Local下persistentDataPath的；
-     * 
-     * 2、内置已经实现了一个默认的WebRequest帮助类对象；模块初始化时会
-    * 自动加载并将默认的helper设置为此模块的默认加载helper；
-    * 
-    */
+     * WebRequest：一次请求 → 一份“内存里的结果”（文本 / 字节 / 贴图 / 音频 / AB / 上传 / Content-Length）。
+     * 典型用途：网关版本号、配置、公告、排行榜、头像贴图等小体量数据。
+     *
+     * 与 Download 模块的分工（不要再往这里加“落盘”能力）：
+     *   · 结果留在内存、用完即弃                             → WebRequest
+     *   · 要写到磁盘、要断点续传 / 长度校验 / 原子提交        → Download 模块（DownloadManager）
+     * 两个模块互不依赖；共用的 HTTP 判定（成功 / Content-Length / Content-Range）在 Utility.Net 里。
+     */
     //================================================
     public interface IWebRequestManager : IModuleManager
     {
@@ -25,31 +26,31 @@ namespace Cosmos.WebRequest
         /// </summary>
         bool Running { get; }
         /// <summary>
-        /// 开始回调；
+        /// 开始回调。
         /// </summary>
         event Action<WebRequestStartEventArgs> OnStartCallback;
         /// <summary>
-        /// 进度回调；
+        /// 进度回调。
         /// </summary>
         event Action<WebRequestUpdateEventArgs> OnUpdateCallback;
         /// <summary>
-        /// 成功回调；
+        /// 成功回调。
         /// </summary>
         event Action<WebRequestSuccessEventArgs> OnSuccessCallback;
         /// <summary>
-        /// 失败回调；
+        /// 失败回调。
         /// </summary>
         event Action<WebRequestFailureEventArgs> OnFailureCallback;
         /// <summary>
-        /// 获取文件长度失败回调；
+        /// 获取文件长度失败回调。
         /// </summary>
         event Action<WebRequestGetContentLengthFailureEventArgs> OnGetContentLengthFailureCallback;
         /// <summary>
-        /// 获取文件长度成功回调；
+        /// 获取文件长度成功回调。
         /// </summary>
         event Action<WebRequestGetContentLengthSuccessEventArgs> OnGetContentLengthSuccessCallback;
         /// <summary>
-        /// 所有任务完成回调；
+        /// 所有任务完成回调。
         /// </summary>
         event Action<WebRequestAllTaskCompleteEventArgs> OnAllTaskCompleteCallback;
         /// <summary>
@@ -65,38 +66,38 @@ namespace Cosmos.WebRequest
         /// </summary>
         event Action<WebRequestGetHtmlFilesSuccessEventArgs> OnGetHtmlFilesSuccessCallback;
         /// <summary>
-        /// 添加下载AssetBundle任务；
+        /// 添加下载AssetBundle任务。
         /// </summary>
         /// <param name="url">地址</param>
         /// <returns>任务id</returns>
         long AddDownloadAssetBundleTask(string url);
         /// <summary>
-        ///  添加下载Audio任务；
+        ///  添加下载Audio任务。
         /// </summary>
         /// <param name="url">地址</param>
         /// <param name="audioType">声音类型</param>
         /// <returns>任务id</returns>
         long AddDownloadAudioTask(string url, AudioType audioType);
         /// <summary>
-        /// 添加下载Text任务；
+        /// 添加下载Text任务。
         /// </summary>
         /// <param name="url">地址</param>
         /// <returns>任务id</returns>
         long AddDownloadTextTask(string url);
         /// <summary>
-        /// 添加下载Texture任务；
+        /// 添加下载Texture任务。
         /// </summary>
         /// <param name="url">地址</param>
         /// <returns>任务id</returns>
         long AddDownloadTextureTask(string url);
         /// <summary>
-        /// 添加下载请求任务；
+        /// 添加下载请求任务。
         /// </summary>
         /// <param name="url">地址</param>
         /// <returns>任务id</returns>
         long AddDownloadRequestTask(string url);
         /// <summary>
-        /// 添加上传请求任务；
+        /// 添加上传请求任务。
         /// </summary>
         /// <param name="url">地址</param>
         /// <param name="data">数据</param>
@@ -104,19 +105,19 @@ namespace Cosmos.WebRequest
         /// <returns>任务id</returns>
         long AddUploadRequestTask(string url, byte[] data, WebRequestUploadType uploadType);
         /// <summary>
-        /// 添加上传请求任务；
+        /// 添加上传请求任务。
         /// </summary>
         /// <param name="webRequest">请求</param>
         /// <returns>任务id</returns>
         long AddUploadRequestTask(UnityWebRequest webRequest);
         /// <summary>
-        /// 添加下载请求任务；
+        /// 添加下载请求任务。
         /// </summary>
         /// <param name="webRequest">请求</param>
         /// <returns>任务id</returns>
         long AddDownloadRequestTask(UnityWebRequest webRequest);
         /// <summary>
-        /// 添加获取文件大小的请求；
+        /// 添加获取文件大小的请求。
         /// </summary>
         /// <param name="url">地址</param>
         /// <returns>任务id</returns>
@@ -129,8 +130,56 @@ namespace Cosmos.WebRequest
         /// <param name="url">地址</param>
         /// <returns>任务id</returns>
         long AddUrlFileRequestTask(string url);
+
+        #region 新API：句柄式异步请求
         /// <summary>
-        /// 移除任务；
+        /// 最大并发请求数量
+        /// </summary>
+        int MaxConcurrentRequests { get; set; }
+        /// <summary>
+        /// 正在执行的请求数量
+        /// </summary>
+        int ActiveRequestCount { get; }
+        /// <summary>
+        /// 排队等待的请求数量
+        /// </summary>
+        int WaitingRequestCount { get; }
+        /// <summary>
+        /// 异步下载文本
+        /// </summary>
+        WebRequestHandle<string> AddDownloadTextTaskAsync(string url, float timeoutSeconds = 30, int retryCount = 0, uint priority = 0);
+        /// <summary>
+        /// 异步下载二进制数据
+        /// </summary>
+        WebRequestHandle<byte[]> AddDownloadBytesTaskAsync(string url, float timeoutSeconds = 30, int retryCount = 0, uint priority = 0);
+        /// <summary>
+        /// 异步下载贴图
+        /// </summary>
+        WebRequestHandle<Texture2D> AddDownloadTextureTaskAsync(string url, float timeoutSeconds = 30, int retryCount = 0, uint priority = 0);
+        /// <summary>
+        /// 异步下载音频
+        /// </summary>
+        WebRequestHandle<AudioClip> AddDownloadAudioTaskAsync(string url, AudioType audioType, float timeoutSeconds = 30, int retryCount = 0, uint priority = 0);
+        /// <summary>
+        /// 异步下载AssetBundle
+        /// </summary>
+        WebRequestHandle<AssetBundle> AddDownloadAssetBundleTaskAsync(string url, float timeoutSeconds = 30, int retryCount = 0, uint priority = 0);
+        /// <summary>
+        /// 异步获取文件长度
+        /// </summary>
+        WebRequestHandle<long> AddGetContentLengthTaskAsync(string url, float timeoutSeconds = 30, int retryCount = 0, uint priority = 0);
+        /// <summary>
+        /// 异步上传数据
+        /// </summary>
+        WebRequestHandle<byte[]> AddUploadTaskAsync(string url, byte[] data, WebRequestUploadType uploadType, float timeoutSeconds = 30, int retryCount = 0, uint priority = 0);
+        /// <summary>
+        /// 取消全部请求（进行中与排队中的均取消）
+        /// </summary>
+        void CancelAllRequests();
+        #endregion
+
+        /// <summary>
+        /// 移除任务。
         /// </summary>
         /// <param name="taskId">任务id</param>
         /// <returns>移除结果</returns>
@@ -143,21 +192,21 @@ namespace Cosmos.WebRequest
         /// <returns>移除结果</returns>
         bool RemoveUrlFileRequestTask(long taskId);
         /// <summary>
-        /// 是否存在任务；
+        /// 是否存在任务。
         /// </summary>
         /// <param name="taskId">任务id</param>
         /// <returns>存在结果</returns>
         bool HasTask(long taskId);
         /// <summary>
-        /// 开始执行请求任务；
+        /// 开始执行请求任务。
         /// </summary>
         void StartRequestTasks();
         /// <summary>
-        /// 停止但不清空任务，效果与暂停相似；
+        /// 停止但不清空任务，效果与暂停相似。
         /// </summary>
         void StopRequestTasks();
         /// <summary>
-        /// 清空并终止所有请求任务；
+        /// 清空并终止所有请求任务。
         /// </summary>
         void AbortRequestTasks();
     }

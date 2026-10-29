@@ -16,6 +16,8 @@ namespace Cosmos
             readonly static long epochTicks = new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc).Ticks;
             readonly static long secDivisor = (long)Math.Pow(10, 7);
             readonly static long msecDivisor = (long)Math.Pow(10, 4);
+            //1ticks=100ns=0.1us，即1us=10ticks
+            readonly static long usecDivisor = 10;
             /// <summary>
             /// 获取秒级别UTC时间戳
             /// </summary>
@@ -38,7 +40,7 @@ namespace Cosmos
             /// <returns>微秒级别UTC时间戳</returns>
             public static long MicrosecondTimeStamp()
             {
-                return DateTime.UtcNow.Ticks - epochTicks;
+                return (DateTime.UtcNow.Ticks - epochTicks) / usecDivisor;
             }
             /// <summary>
             ///秒级别UTC时间
@@ -62,7 +64,7 @@ namespace Cosmos
             /// <returns>long时间</returns>
             public static long MicrosecondNow()
             {
-                return DateTime.UtcNow.Ticks;
+                return DateTime.UtcNow.Ticks / usecDivisor;
             }
             /// <summary>
             /// 时间戳转UTC DateTime
@@ -76,9 +78,31 @@ namespace Cosmos
                     return dateTime.AddSeconds(timeStamp);
                 if (length == 12)
                     return dateTime.AddMilliseconds(timeStamp);
-                if (length == 16)
-                    return dateTime.AddTicks(timeStamp);
+                if (length == 15)
+                    return dateTime.AddTicks(timeStamp * usecDivisor);
                 return DateTime.MinValue;
+            }
+            /// <summary>
+            /// 获取一天的起始时间。
+            /// </summary>
+            /// <param name="dateTime">需要转换的时间</param>
+            /// <para>需要转换的时间2022-2-22-12:22:22，转换后为2022-2-22-00:00:00</para>
+            /// <returns>转换后的时间</returns>
+            public static DateTime GetStartOfDay(DateTime dateTime)
+            {
+                DateTime day = new DateTime(dateTime.Year, dateTime.Month, dateTime.Day, 0, 0, 0);
+                return day;
+            }
+            /// <summary>
+            /// 获取一天的结束时间。
+            /// <para>需要转换的时间2022-2-22-12:22:22，转换后为2022-2-22-23:59:59</para>
+            /// </summary>
+            /// <param name="dateTime">需要转换的时间</param>
+            /// <returns>转换后的时间</returns>
+            public static DateTime GetEndOfDay(DateTime dateTime)
+            {
+                DateTime day = new DateTime(dateTime.Year, dateTime.Month, dateTime.Day, 23, 59, 59);
+                return day;
             }
             /// <summary>
             /// 获取该时间相对于纪元时间的秒数。
@@ -105,7 +129,7 @@ namespace Cosmos
             public static long GetTotalMicroseconds()
             {
                 TimeSpan ts = DateTime.UtcNow - epoch;
-                return Convert.ToInt64(ts.TotalMilliseconds) / 10;
+                return ts.Ticks / usecDivisor;
             }
             /// <summary>
             /// 获取该时间相对于纪元时间的分钟数
@@ -129,7 +153,7 @@ namespace Cosmos
             public static double GetTotalDays()
             {
                 TimeSpan ts = DateTime.UtcNow - epoch;
-                return Convert.ToInt64(ts.TotalHours);
+                return Convert.ToInt64(ts.TotalDays);
             }
             /// <summary>
             /// 获取某一年有多少周。
@@ -295,7 +319,7 @@ namespace Cosmos
             /// <returns>微秒时间戳</returns>
             public static long GetDateMicrosecondTimeStamp(DateTime dateTime)
             {
-                return (dateTime.Ticks - epochTicks);
+                return (dateTime.Ticks - epochTicks) / usecDivisor;
             }
             /// <summary>
             /// 判断是否是同一天
@@ -313,20 +337,34 @@ namespace Cosmos
                 return true;
             }
             /// <summary>
-            /// 检测两个日期是否在同一周
+            /// 检测两个日期是否在同一周。
+            /// <para>定义周日是每周的第一天</para>
             /// </summary>
             /// <param name="lhs">时间1</param>
             /// <param name="rhs">时间2</param>
             /// <returns>是否在同一周</returns>
             public static bool MatchWeek(DateTime lhs, DateTime rhs)
             {
-                int lhsYear = lhs.Year;
-                int lhsWeek = CultureInfo.CurrentCulture.Calendar.GetWeekOfYear(lhs, CalendarWeekRule.FirstFourDayWeek, DayOfWeek.Monday);
-                // 获取要检测日期的年、月、日和星期几
-                int rhsYear = rhs.Year;
-                int rhsWeek = CultureInfo.CurrentCulture.Calendar.GetWeekOfYear(rhs, CalendarWeekRule.FirstFourDayWeek, DayOfWeek.Monday);
-                bool isSameWeek = lhsYear == rhsYear && lhsWeek == rhsWeek;
-                return isSameWeek;
+                // 计算每个日期周的开始日期（以周一为第一天）
+                DateTime startOfWeek1 = lhs.AddDays(-(int)lhs.DayOfWeek + (int)DayOfWeek.Monday);
+                DateTime startOfWeek2 = rhs.AddDays(-(int)rhs.DayOfWeek + (int)DayOfWeek.Monday);
+                // 比较两者的周开始日期
+                return startOfWeek1.Date == startOfWeek2.Date;
+            }
+            /// <summary>
+            /// 检测两个日期是否在同一周。
+            /// <para>ISO标准，定义周一是每周的第一天</para>
+            /// </summary>
+            /// <param name="lhs">时间1</param>
+            /// <param name="rhs">时间2</param>
+            /// <returns>是否在同一周</returns>
+            public static bool MatchISOWeek(DateTime lhs, DateTime rhs)
+            {
+                // 计算每个日期周的开始日期（以周一为第一天）
+                DateTime startOfWeek1 = lhs.AddDays(-(lhs.DayOfWeek == DayOfWeek.Sunday ? 7 : (int)lhs.DayOfWeek) + (int)DayOfWeek.Monday);
+                DateTime startOfWeek2 = rhs.AddDays(-(rhs.DayOfWeek == DayOfWeek.Sunday ? 7 : (int)rhs.DayOfWeek) + (int)DayOfWeek.Monday);
+                // 比较两者的周开始日期
+                return startOfWeek1.Date == startOfWeek2.Date;
             }
             /// <summary>
             /// 检测两个日期是否在同一个月

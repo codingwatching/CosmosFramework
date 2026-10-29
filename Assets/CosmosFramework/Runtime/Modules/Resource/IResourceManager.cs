@@ -1,4 +1,3 @@
-﻿using Cosmos.Resource.State;
 using System;
 using System.Collections.Generic;
 using UnityEngine;
@@ -6,252 +5,165 @@ using Object = UnityEngine.Object;
 
 namespace Cosmos.Resource
 {
-    //================================================
-    /*
-     * 1、资源加载模块分为内置部分与自定义部分；
-     * 
-     * 2、内置加载通道在初始化时自动被注册，通过SwitchBuildInLoadMode()
-    * 方法进行通道切换；
-    * 
-    * 3、自定义部分加载前需要进行通道注册，加载时需要指定通道名称；
-    * 
-    * 4、默认提供两种加载模式，分别为 Resource与AssetBundle；
-    */
-    //================================================
+    /// <summary>
+    /// 资源模块（资源桥）。
+    /// <para>职责分为三层：</para>
+    /// <para>1、<b>Provider 管理</b>：注册、选择、切换具体资源方案（Addressables / YooAsset / QuarkAsset / 编辑器兜底）；</para>
+    /// <para>2、<b>生命周期</b>：句柄式 API + name-keyed 兼容层，统一引用计数与释放；</para>
+    /// <para>3、<b>诊断</b>：与具体方案无关的加载记录、耗时与泄漏检测。</para>
+    /// <para>业务模块（UI / Entity / Audio / DataTable / ObjectsPool）只依赖本接口，不依赖任何三方资源库。</para>
+    /// </summary>
     public interface IResourceManager : IModuleManager
     {
+        #region Provider
         /// <summary>
-        /// 当资源包被卸载时一同卸载已经被加载的资源
+        /// 当前 Provider
         /// </summary>
-        bool UnloadAllLoadedObjectsWhenBundleUnload { get; set; }
+        IResourceProvider Provider { get; }
         /// <summary>
-        /// 当前资源的加载模式
+        /// 当前 Provider 名称
         /// </summary>
-        ResourceLoadMode ResourceLoadMode { get; }
+        string ProviderName { get; }
         /// <summary>
-        /// 请求资源文件清单成功事件
-        /// <para>开始请求<see cref="StartRequestManifest"/></para>
-        /// <para>结束请求<see cref="StopRequestManifest"/></para>
+        /// 资源系统是否就绪（Provider 已创建且初始化完成）
         /// </summary>
-        event Action<ResourceRequestManifestSuccessEventArgs> ResourceRequestManifestSuccess;
+        bool IsInitialized { get; }
         /// <summary>
-        /// 请求资源文件清单失败事件
-        /// <para>开始请求<see cref="StartRequestManifest"/></para>
-        /// <para>结束请求<see cref="StopRequestManifest"/></para>
+        /// 未指定 Provider 时使用的默认名称（默认 "AssetDatabase"）
         /// </summary>
-        event Action<ResourceRequestManifestFailureEventArgs> ResourceRequestManifestFailure;
+        string DefaultProviderName { get; set; }
         /// <summary>
-        /// 任务下载成功事件
-        /// <para>添加下载任务<see cref="AddResourceDownloadTask"/></para>
-        /// <para>移除下载任务<see cref="RemoveResourceDownloadTask"/></para>
+        /// 注册一个 Provider 工厂。编辑器兜底 Provider 会在程序集加载时自行注册。
         /// </summary>
-        event Action<ResourceDownloadSuccessEventArgs> OnDownloadSuccess;
+        /// <param name="name">注册名（用于配置与日志）</param>
+        /// <param name="factory">工厂方法</param>
+        void RegisterProvider(string name, Func<IResourceProvider> factory);
         /// <summary>
-        /// 任务下载失败事件
-        /// <para>添加下载任务<see cref="AddResourceDownloadTask"/></para>
-        /// <para>移除下载任务<see cref="RemoveResourceDownloadTask"/></para>
+        /// 是否已注册指定 Provider。
         /// </summary>
-        event Action<ResourceDownloadFailureEventArgs> OnDownloadFailure;
+        bool HasProvider(string name);
         /// <summary>
-        /// 整体任务下载更新事件
-        /// <para>添加下载任务<see cref="AddResourceDownloadTask"/></para>
-        /// <para>移除下载任务<see cref="RemoveResourceDownloadTask"/></para>
+        /// 按注册名或类型名（程序集限定名）选择 Provider 并初始化。
+        /// <para>切换 Provider 会先释当前 Provider 的全部资源。</para>
         /// </summary>
-        event Action<ResourceDownloadUpdateEventArgs> OnDownloadUpdate;
+        /// <param name="name">注册名或类型名</param>
+        /// <param name="settings">"key=value;key2=value2" 形式的参数</param>
+        void SetProvider(string name, string settings = null);
         /// <summary>
-        /// 所有任务完成事件
-        /// <para>添加下载任务<see cref="AddResourceDownloadTask"/></para>
-        /// <para>移除下载任务<see cref="RemoveResourceDownloadTask"/></para>
+        /// 直接设置 Provider 实例并初始化。
         /// </summary>
-        event Action<ResourceDownloadCompeleteEventArgs> OnDownloadComplete;
+        void SetProvider(IResourceProvider provider, string settings = null);
         /// <summary>
-        /// 下载任务取消回调
-        /// <para>添加下载任务<see cref="AddResourceDownloadTask"/></para>
-        /// <para>移除下载任务<see cref="RemoveResourceDownloadTask"/></para>
+        /// 释放并移除当前 Provider。
         /// </summary>
-        event Action<ResourceDownloadTasksCancelEventArgs> OnDownloadCancel;
+        void UnsetProvider();
+        #endregion
+
+        #region 句柄 API（推荐）
         /// <summary>
-        /// 资源下载任务数量
+        /// 异步加载资产。
         /// </summary>
-        int ResourceDownloadTaskCount { get; }
-        #region Methods
+        AssetHandle<T> LoadAssetHandle<T>(string assetKey, uint priority = 0) where T : Object;
         /// <summary>
-        /// 设置默认的加载方式
+        /// 异步加载资产及其子资产。
         /// </summary>
-        /// <param name="resourceLoadMode">加载模式</param>
-        /// <param name="loadHelper">加载帮助对象</param>
-        void SetDefaultLoadHeper(ResourceLoadMode resourceLoadMode, IResourceLoadHelper loadHelper);
+        SubAssetsHandle<T> LoadSubAssetsHandle<T>(string assetKey, uint priority = 0) where T : Object;
         /// <summary>
-        /// 切换当前默认的加载模式
+        /// 异步加载根标识下的全部资产。
         /// </summary>
-        /// <param name="resourceLoadMode">加载模式</param>
-        void SwitchLoadMode(ResourceLoadMode resourceLoadMode);
+        AllAssetsHandle<T> LoadAllAssetsHandle<T>(string assetKey, uint priority = 0) where T : Object;
         /// <summary>
-        /// 重置加载器
+        /// 批量异步加载（同一标识只发起一次底层请求）。
         /// </summary>
-        /// <param name="resourceLoadMode">加载模式</param>
-        void ResetLoadHeper(ResourceLoadMode resourceLoadMode);
+        AssetsHandle<T> LoadAssetsHandle<T>(IEnumerable<string> assetKeys, uint priority = 0) where T : Object;
         /// <summary>
-        /// 添加者更新替换内置的加载帮助体
+        /// 异步加载场景。
         /// </summary>
-        /// <param name="resourceLoadMode">加载模式</param>
-        /// <param name="loadHelper">加载帮助对象</param>
-        void AddOrUpdateLoadHelper(ResourceLoadMode resourceLoadMode, IResourceLoadHelper loadHelper);
+        SceneHandle LoadSceneHandle(string sceneKey, bool additive = true, bool activateOnLoad = true, uint priority = 0);
         /// <summary>
-        /// 请求文件清单
-        /// <para>成功回调<see cref="ResourceRequestManifestSuccess"/></para>
-        /// <para>失败回调<see cref="ResourceRequestManifestFailure"/></para>
+        /// 异步实例化（需 Provider 支持 <see cref="ResourceCapabilities.Instance"/>，释放句柄即销毁实例）。
         /// </summary>
-        /// <param name="manifestPath">文件清单地址</param>
-        /// <param name="manifestEncryptionKey">文件解密密钥 [NULLABLE] </param>
-        /// <param name="bundlePath">ab资源所在根目录</param>
-        /// <returns>任务Id</returns>
-        long StartRequestManifest(string manifestPath, string manifestEncryptionKey, string bundlePath = "");
+        GameObjectHandle InstantiateHandle(string assetKey, Transform parent = null, uint priority = 0);
+        #endregion
+
+        #region 模块兼容 API（Coroutine + name-keyed）
         /// <summary>
-        /// 停止请求文件清单
+        /// 异步加载资产，完成后回调；每调用一次增加一个引用计数，需配对调用 <see cref="UnloadAsset"/>。
         /// </summary>
-        void StopRequestManifest();
-        /// <summary>
-        /// 添加下载任务
-        /// <para> <see cref="OnDownloadSuccess"/></para> 
-        /// <para> <see cref="OnDownloadFailure"/> </para> 
-        /// <para> <see cref="OnDownloadUpdate"/> </para> 
-        /// <para> <see cref="OnDownloadComplete"/> </para> 
-        /// </summary>
-        /// <param name="task">下载任务</param>
-        /// <returns>下载任务Id</returns>
-        long AddResourceDownloadTask(ResourceDownloadTask task);
-        /// <summary>
-        /// 移除下载任务
-        /// </summary>
-        /// <param name="taskId">下载任务</param>
-        /// <returns>移除结果，失败或成功</returns>
-        void RemoveResourceDownloadTask(long taskId);
-        /// <summary>
-        /// 下载任务添加完毕后，开始下载
-        /// </summary>
-        void StartResourceDownload();
-        /// <summary>
-        /// 取消下载，此操作会情况下载任务
-        /// <para> <see cref="OnDownloadCancel"/> </para> 
-        /// </summary>
-        void CancelResourceDownload();
-        /// <summary>
-        /// 加载资源（异步），增加一个引用计数
-        /// </summary>
-        /// <typeparam name="T">资源类型</typeparam>
-        /// <param name="assetName">资源信息</param>
-        /// <param name="progress">加载中事件</param>
-        /// <param name="callback">加载完成事件，T表示原始对象，GameObject表示实例化的对象</param>
-        /// <returns>协程对象</returns>
         Coroutine LoadAssetAsync<T>(string assetName, Action<T> callback, Action<float> progress = null) where T : Object;
         /// <summary>
-        /// 加载资源（异步），增加一个引用计数
+        /// 异步加载资产（运行时类型），完成后回调。
         /// </summary>
-        /// <param name="assetName">资源信息</param>
-        /// <param name="type">资源类型</typeparam>
-        /// <param name="progress">加载中事件</param>
-        /// <param name="callback">加载完成事件，T表示原始对象，GameObject表示实例化的对象</param>
-        /// <returns>协程对象</returns>
         Coroutine LoadAssetAsync(string assetName, Type type, Action<Object> callback, Action<float> progress = null);
         /// <summary>
-        /// 加载资源以及子资源（异步），增加一个引用计数
+        /// 异步加载资产及其子资产，完成后回调。
         /// </summary>
-        /// <typeparam name="T">资源类型</typeparam>
-        /// <param name="assetName">资源信息</param>
-        /// <param name="callback">加载完成事件</param>
-        /// <param name="progress">加载中事件</param>
-        /// <returns>协程对象</returns>
         Coroutine LoadMainAndSubAssetsAsync<T>(string assetName, Action<T[]> callback, Action<float> progress = null) where T : Object;
         /// <summary>
-        /// 加载资源以及子资源（异步），增加一个引用计数
+        /// 异步加载资产及其子资产（运行时类型），完成后回调。
         /// </summary>
-        /// <param name="assetName">资源信息</param>
-        /// <param name="type">资源类型</typeparam>
-        /// <param name="callback">加载完成事件</param>
-        /// <param name="progress">加载中事件</param>
-        /// <returns>协程对象</returns>
         Coroutine LoadMainAndSubAssetsAsync(string assetName, Type type, Action<Object[]> callback, Action<float> progress = null);
         /// <summary>
-        ///  加载预制体资源（异步），增加一个引用计数
+        /// 异步加载预制体，完成后回调；<paramref name="instantiate"/> 为 true 时额外实例化一份。
         /// </summary>
-        /// <param name="assetName">资源信息</param>
-        /// <param name="progress">加载中事件</param>
-        /// <param name="callback">加载完成事件，T表示原始对象，GameObject表示实例化的对象</param>
-        /// <param name="instantiate">是否实例化对象</param>
-        /// <returns>加载协程</returns>
         Coroutine LoadPrefabAsync(string assetName, Action<GameObject> callback, Action<float> progress = null, bool instantiate = false);
         /// <summary>
-        ///  加载资源包种的所有资源（异步），增加一个引用计数
+        /// 异步加载根标识下的全部资产，完成后回调。
         /// </summary>
-        /// <param name="assetBundleName">资源包</param>
-        /// <param name="callback">加载完成事件</param>
-        /// <param name="progress">加载中事件</param>
-        /// <returns>协程对象</returns>
-        Coroutine LoadAllAssetAsync(string assetBundleName, Action<Object[]> callback, Action<float> progress = null);
+        Coroutine LoadAllAssetAsync(string assetPack, Action<Object[]> callback, Action<float> progress = null);
         /// <summary>
-        /// 加载场景（异步），增加一个引用计数
+        /// 异步加载场景。
         /// </summary>
-        /// <param name="sceneAssetInfo">资源信息</param>
-        /// <param name="progress">加载场景进度回调</param>
-        /// <param name="condition">场景加载完成的条件</param>
-        /// <param name="callback">场景加载完毕回调</param>
-        /// <returns>协程对象</returns>
+        /// <param name="sceneAssetInfo">场景信息</param>
+        /// <param name="progressProvider">自定义进度来源（为空则使用加载进度）</param>
+        /// <param name="progress">进度回调</param>
+        /// <param name="condition">加载完成后的额外等待条件</param>
+        /// <param name="callback">场景就绪回调</param>
         Coroutine LoadSceneAsync(SceneAssetInfo sceneAssetInfo, Func<float> progressProvider, Action<float> progress, Func<bool> condition, Action callback);
         /// <summary>
-        /// 卸载场景（异步），增加一个引用计数
+        /// 异步卸载场景。
         /// </summary>
-        /// <param name="sceneAssetInfo">资源信息</param>
-        /// <param name="progress">卸载场景的进度</param>
-        /// <param name="condition">卸载场景完成的条件</param>
-        /// <param name="callback">场景卸载完毕后的回调<</param>
-        /// <returns>协程对象</returns>
         Coroutine UnloadSceneAsync(SceneAssetInfo sceneAssetInfo, Action<float> progress, Func<bool> condition, Action callback);
         /// <summary>
-        /// 卸载资源（同步），减少一个引用计数
+        /// 卸载一个资源（减少一个引用计数）。
         /// </summary>
-        /// <param name="assetName">资源名</param>
         void UnloadAsset(string assetName);
         /// <summary>
-        /// 卸载多个资源（同步），减少一个引用计数
+        /// 卸载多个资源。
         /// </summary>
-        /// <param name="assetNames">资源名合集</param>
         void UnloadAssets(IEnumerable<string> assetNames);
         /// <summary>
-        /// 释放所有资源（同步），引用计数归零
+        /// 释放全部资源与场景。
         /// </summary>
-        /// <param name="unloadAllLoadedObjects">是否同时卸载所有实体对象</param>
+        /// <param name="unloadAllLoadedObjects">是否同时触发 Resources.UnloadUnusedAssets</param>
         void UnloadAllAsset(bool unloadAllLoadedObjects);
+        #endregion
+
+        #region 诊断
         /// <summary>
-        /// 释放资源包（同步），引用计数归零
+        /// 是否开启加载诊断（编辑器默认开启）。
         /// </summary>
-        /// <param name="assetBundleName">资源包名</param>
-        /// <param name="unloadAllLoadedObjects">是否同时卸载所有实体对象</param>
-        void UnloadAssetBundle(string assetBundleName, bool unloadAllLoadedObjects);
+        bool DiagnosticsEnabled { get; set; }
         /// <summary>
-        /// 获取bundle状态信息
+        /// 是否捕获调用栈（定位泄漏源头，有少量开销）。
         /// </summary>
-        /// <param name="bundleName">资源包名</param>
-        /// <param name="bundleState">资源包状态</param>
-        /// <returns>是否存在</returns>
-        bool GetBundleState(string bundleName, out ResourceBundleState bundleState);
+        bool CaptureStackTrace { get; set; }
         /// <summary>
-        /// 获取object信息
+        /// 历史加载记录。
         /// </summary>
-        /// <param name="objectName">资源对象名</param>
-        /// <param name="objectState">资源对象状态</param>
-        /// <returns>是否存在</returns>
-        bool GetObjectState(string objectName, out ResourceObjectState objectState);
+        IReadOnlyList<ResourceLoadRecord> LoadRecords { get; }
         /// <summary>
-        /// 获得已加载的bundle信息
+        /// 清空加载记录。
         /// </summary>
-        /// <returns>已加载的包体信息</returns>
-        ResourceBundleState[] GetLoadedBundleState();
+        void ClearDiagnostics();
         /// <summary>
-        /// Get version of resource.
+        /// 当前运行时状态（调试窗口用）。
         /// </summary>
-        /// <returns>resource version</returns>
-        ResourceVersion GetResourceVersion();
+        ResourceRuntimeInfo GetRuntimeInfo();
+        /// <summary>
+        /// 生成诊断摘要文本。
+        /// </summary>
+        string GenerateDiagnosticsReport();
         #endregion
     }
 }

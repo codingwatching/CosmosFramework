@@ -3,170 +3,340 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-brightgreen.svg)](LICENSE)
 [![Issues:Welcome](https://img.shields.io/badge/Issues-welcome-blue.svg)](https://github.com/DonnYep/CosmosFramework/issues)
 
-# [English](README_EN.md) 
+# [English](README_EN.md)
 
 # CosmosFramework
 
-CosmosFramework是一款中轻量级的Unity开发框架。框架拥有丰富的Unity方法扩展以及工具链。async/await语法支持，多网络通道支持，完整的资源打包流水线。支持自动化部署。框架遵循unityPackage规范，建议通过UPM导入使用。
-* [CosmosFramework Wiki](https://github.com/DonnYep/CosmosFramework/wiki)<br/>
+CosmosFramework 是一款中轻量级的 Unity 开发框架：统一模块生命周期、可插拔资源方案、集中式对象刷新、async/await 语法支持与多网络通道，并附带大量工具类、数据结构与编辑器工具。
+
+- [完整使用手册](Docs/MANUAL.md)：模块、工具类、底座、用法与边界（按当前代码结构编写）
+- [CosmosFramework Wiki](https://github.com/DonnYep/CosmosFramework/wiki)
+
+> ## ⚠️ 本次为破坏性更新
+>
+> 本版**不向后兼容**。升级前请对照 [破坏性更新清单](#破坏性更新)。
+>
+> - **Controller 模块已移除**：实体刷新并入 Entity 模块，`CosmosEntry.ControllerManager`、`IControllerManager`、`[TickRefresh]` / `[LateRefresh]` / `[FixedRefresh]` 全部删除。
+> - **Entity 契约调整**：`ShowEntity(string, out EntityObject)` 改为 `ShowEntity<T>(string)`；新增 `RegisterLogicEntity<T>`（无 GameObject 的逻辑实体）、`PauseEntityGroup`、`GetEntityObject` 等。
+> - **模块系统**：`[Module]` 默认优先级改为 `10000`（内置模块占 `100~1300`），同一契约重复注册会启动报错，契约解析改为确定性规则。
+> - **取模块语义**：`GetModule<T>()` 未注册时抛 `InvalidOperationException`（新增 `TryGetModule<T>()`）。
+> - **网络**：删除 `WaitConnectedAwaiter` / `WaitReceiveDataAwaiter` / `WaitForChannelExts`；改用 `ConnectAsync` / `ReceiveDataAsync` / `WaitDisconnectedAsync`（同名扩展保留，新增取消与超时参数）。
+> - **Event 改为 reactive**：`Subscribe` 返回 `IDisposable`，`Observe<T>()` 支持 `Where` / `Select` / `DistinctUntilChanged`；`AddEvent` / `RemoveEvent` / `Dispatch` 删除，新增 `Runtime/Base/Reactive` 响应式基座。
+> - **MonoSingleton**：首次获取（含场景预置）都会调用 `OnInitialize`，即 `DontDestroyOnLoad`。
 
 <a name="导航"></a>
 
 # 导航
 - [English](#english)
 - [CosmosFramework](#cosmosframework)
-- [导航](#导航)
-  - [环境](#环境)
-  - [启动框架](#启动框架)
-  - [模块简介](#模块简介)
-  - [内置数据结构、工具](#内置数据结构工具)
-  - [内置架构 PureMVC](#内置架构-puremvc)
-  - [注意事项](#注意事项)
-  - [UPM](#upm)
-  - [其他](#其他)
-  - [Library link](#library-link)
+- [破坏性更新](#破坏性更新)
+- [环境](#环境)
+- [快速开始](#快速开始)
+- [项目结构](#项目结构)
+- [核心机制](#核心机制)
+- [模块一览](#模块一览)
+- [工具类](#工具类)
+- [基础底座](#基础底座)
+- [架构模板](#架构模板)
+- [资源集成](#资源集成)
+- [编辑器工具](#编辑器工具)
+- [文档索引](#文档索引)
+- [已知边界](#已知边界)
+- [UPM](#upm)
+- [其他](#其他)
+- [Library link](#library-link)
 
-- [ResourceEditor文档](Docs/RESOURCE_EDITOR.md)
+<a name="破坏性更新"></a>
+
+## 破坏性更新
+
+| 变更 | 影响 | 处理方式 |
+| --- | --- | --- |
+| Controller 模块删除 | 旧 `[TickRefresh]` 轮询不再生效 | 实体实现 `IEntityTickable` / `IEntityFixedTickable` / `IEntityLateTickable`；普通 MonoBehaviour 直接用 `Update` |
+| `CosmosEntry.ControllerManager` 删除 | 编译失败 | 用 `CosmosEntry.EntityManager`：`Paused` 个体暂停、`PauseEntityGroup` 组冻结 |
+| `ShowEntity(string, out EntityObject)` 删除 | 编译失败 | 改为 `ShowEntity<T>(entityName)` |
+| Event API 改为 reactive | `AddEvent` / `RemoveEvent` / `Dispatch` 删除 | 改用 `Subscribe`（返回 `IDisposable`）/ `Publish` / `Observe` |
+| `LimitedQueue<T>` 改为组合实现 | 不再是 `Queue<T>` 子类，按 `Queue<T>` 传递会编译失败 | 改用自身的 `Enqueue` / `Dequeue` / `TryDequeue` / `Peek` / `Clear` |
+| 模块优先级语义统一 | 显式声明小 `Priority` 的自定义模块会提前初始化 | 默认不写即排在全部内置模块之后；需要插队再用 `[Module(Priority = n)]` |
+| 重复契约报错 | 与内置模块同契约的自定义模块无法启动 | 删其一，或 `BuiltinModuleRegistry` 移除内置项 / 用 `CosmosEntry.LaunchModules` 自定义集合 |
+| `GetModule<T>()` 抛异常 | 依赖 null 判断的代码会抛 | 可选模块改用 `TryGetModule<T>()` |
+| 网络 awaiter 重写 | 旧 awaiter 类型引用编译失败 | 使用同名扩展 `ConnectAsync` / `ReceiveDataAsync`，或新增的 `WaitDisconnectedAsync` |
+| `MonoSingleton` 初始化时机 | 场景预置实例也会 `DontDestroyOnLoad` | 无需处理，行为更一致 |
+| `(long)Fix64` 改为向零截断 | 负值结果变化（`(long)(Fix64)(-1.5)` 由 `-2` 变 `-1`） | 需要向下取整时先 `Fix64.Floor` 再转 `long` |
+| `(Fix64)` 数值转换越界饱和 | 超界不再回绕（`(Fix64)long.MaxValue` 不再得到 `-1`）；`NaN` 归一为 `0`，`±Infinity` / 超界值饱和到 `MaxValue` / `MinValue` | 无需处理；依赖回绕结果的写法属未定义用法 |
+| `AStarFix64.Clear()` 清空网格 | `Clear()` 后 `GetNode` 返回 `null`（与 `AStar` 一致） | 只想清缓冲用 `ClearNodeCache()` |
+| `QuadTree` 满叶不再丢对象 | 到达最大深度的满叶会继续累积（可超过 `NodeObjectCapacity`），`Insert` 不再返回 `false` | 无需处理；容量是分裂阈值而非硬上限 |
+| AOI 按节点身份增删 | 同 X 坐标 / 同坐标的多个实体不再互相误删；`AOISkipList.Add` 返回最底层节点，可用于 O(1) 删除 | 无需处理 |
+| `Circle` 关系判定修正 | 同心、包含不再被判为「相离」或「相交」 | 无需处理 |
 
 <a name="环境"></a>
 
 ## 环境
 
-- Unity版本:2018及以上,DOTNET API版本:4.x。
+- Unity 版本：2018 及以上；.NET API 版本：4.x（推荐 Unity 2021.3 LTS）。
 
-<a name="启动框架"></a>
+<a name="快速开始"></a>
 
-## 启动框架
+## 快速开始
 
-![CosmosConfig](Docs/Images/Common/CosmosConfig.png)
-- 在游戏入口处添加CosmosConfig组件，添加后即可启动框架。
+1. **启动**：在启动场景放置 `CosmosConfig` 组件（`launchAppDomainModules` 勾选），或手动调用：
 
-<a name="模块简介"></a>
-
-## 模块简介
-
-- **Audio**: 游戏音效模块。通过注册音效信息，播放时传入音效名即可自动加载音效资源播放。音效支持分组，支持同一音效多实体播放。
-
-- **Config**:游戏常用配置模块。用户可在游戏初始化时读取配置文件，并缓存于配置模块。运行时在其他所需位置读取对应配置的数据。
-
-- **Controller**:控制器模块。使用此模块进行注册后，无需生成实体对象(GameObject)也可进行轮询管理。此模块提供Update轮询。
-
-- **DataNode**:数据缓存模块。数据以树形结构存储于此模块中，可通过web地址格式或者逗号分隔符获取对应数据的对象。
-
-- **DataTable**:数据表模块。在此模块中，数据行以对象形式存储于数据表中。数据表可实时增删改查，并通过自定义的反序列化方式生成所需要的数据对象。
-
-- **Download**:下载模块。支持localhost本地文件下载与http文件下载。文件下载时以byte流异步增量写入本地。下载中支持动态添加、移除下载任务；
-
-- **Entity**:游戏实体模块。管理游戏运行时的实体对象。实体支持组分类，通过传入资源地址可以直接管理资源实体对象的生成、回收等操作，内置对象池生成。
-
-- **Event**:事件中心模块。使用标准事件模型，提供了监听、移除、派发等常用事件功能。提供事件观测方法，可实时检测事件状态。
-
-- **FSM**:有限状态机模块。完全抽象的有限状态机，可针对不同类型的拥有者做状态机实现。
-
-- **Input**:输入适配模块。通过虚拟按键模拟各个平台的输入，传入不同的输入适配器可适配不同平台的输入方式。
-
-- **Main**:模块中心。自定义模块与扩展模块都存于此。自定义模块按照内置模块相同格式写入后，可享有完全同等与内置模块的生命周期与权限。几乎与内置模块无异。此主模块的内置轮询池:FixedRefreshHandler、LateRefreshHandler、RefreshHandler、ElapseRefreshHandler可对需要统一进行轮询管理的对象进行统一轮询，减少由于过多的Update等mono回调导致的性能损耗。
-
-- **Network**:网络模块。提供了多种高速可靠的UDP协议，如RUDP、SUDP、KCP、TCP等，默认使用KCP协议。网络以通道(Channel)形式区分各个连接，支持多种网络类型同时连接。可实现(Client-Server)模式。支持async/await语法。
-
-- **ObjectsPool**:对象池模块。提供常用的实体对象生成回收等功能。底层使用数据结构Pool进行实现。
-
-- **Procedure**:流程节点模块。方便管理运行时执行的逻辑节点，如热游戏启动节点，资源校验节点，下载资源节点，进入游戏节点等。将每个操作封装为节点，则大大有利于项目维护。
-
-- **Resource**:资源加载模块。内置提供AssetDatabase、AssetBundle以及Resource三种加载模式。AssetDatabase与AssetBundle模式支持引用计数，资源包会根据引用计数自动管理包体的加载或卸载。Runtime加载器可自定义加载方案。支持自动化流水线，如Jenkins构建部署等。资源模块对应的编辑器位于Window>Cosmos>Module>Resource。开发阶段阶段使用AssetDatabase模式，构建app时使用AssetBundle模式。若需要使用Unity Resource作为加载方案，则切换为Resource模式。
-
-- **Scene**:场景加载模块。提供常用的异步、同步加载嵌入的场景功能。支持自定义实现加载方式。
-
-- **UI**:UI模块。抽象实现UI面板以及UI的加载方式。支持激活，失活，面板优先级，组别设置等功能，使用更轻便。框架提供了基于UGUI实现的面板类与资源加载帮助体。其他UI方案可自行扩展，目前稳定兼容FGUI。
-
-- **WebRequest**:UnityWebRequest模块，可用于加载持久化资源、网络资源下载等需求。支持获取AssetBundle、AudioClip、Texture2D、string。当资源获取到后，用户可通过WebRequestCallback对资源进行操作。
-
-
-<a name="内置数据结构、工具"></a>
-
-## 内置数据结构、工具
-
-- **Utility**:提供了反射、算法、断言、转换、Debug富文本、IO、加密、Json、MessagePack、Time、Text、Unity协程、Unity组件等常用工具函数。
-
-- **Singleton**:单例基类。提供了线程安全、非线程安全、MONO单例基类。
-
-- **DataStructure**:常用数据结构。链表、双向链表、双向字典、二叉树、四叉树、AStar、LRU、线程锁等数据结构。
-
-- **Extensions**:静态扩展库。提供Unity以及C#原生的相关扩展方法。
-
-- **Awaitable** :此工具提供了async/await语法在unity环境中的支持。可以像写c#原生异步一样,在Unity中写异步。支持Task异步，Task执行完成后会回到主线程，使用时按照正常格式写即可。
-
-- **EventCore** 完全抽象的事件数据结构。内含普通、标准与线程安全类型。
-```CSharp
-    //声明一个类，使其派生自EventCore，并做类型约束。
-    public class MyEventCore :EventCore<string,string, MyEventCore>{}
-    //实现后即可使用自定义的事件监听。
+```csharp
+CosmosEntry.LaunchAppDomainModules();                                   // 内置 + 扫描所有程序集
+CosmosEntry.LaunchAssemblyModules(typeof(MyModule).Assembly);           // 内置 + 指定程序集
+CosmosEntry.LaunchModules(new MyModule(), new OtherModule());           // 完全手动（不含内置）
 ```
-- **ReferencePool** :全局引用池模块。
 
-- **Editor** :Editor中提供了在Hierarchy常用检索对象、组件的方法，EditorConfig提供了代码生成是自动创建代码标头的功能；
+2. **取模块**：内置模块有强类型属性，自定义模块用契约接口：
 
-- **FutureTask**:异步任务检测，支持多线程与协程异步进度检测。检测函数需要传入Func<bool>格式的函数，当条件返回值为true时，异步检测结束。支持async/await语法，可使用await语句等待任务完成。
+```csharp
+var ui = CosmosEntry.UIManager;                                  // 内置
+var mine = CosmosEntry.GetModule<IInventoryManager>();           // 自定义（未注册会抛异常）
+if (CosmosEntry.TryGetModule<IOptionalManager>(out var opt)) { } // 可选
+```
 
-- **Pool**:池数据结构。包含线程安全与非线程安全类型。框架中的对象池、引用池以及其他模块的缓存池都使用了“Pool”进行实现。
-    
-<a name="内置架构-PureMVC"></a>
+3. **写一个模块**：
 
-## 内置架构 PureMVC
+```csharp
+public interface IInventoryManager : IModuleManager { void AddItem(int id, int count); }
 
-- 基于原始PureMVC改进的更适于理解的架构。
-    框架提供了基于特性更加简洁的注册方式:
-    - 1.MVCCommandAttribute，对应Command，即C层；
-    - 2.MVCMediatorAttribute，对应Mediator，即V层；
-    - 3.MVCProxyAttribute，对应Proxy，即M层；
-    
-- MVC自动注册只需在入口调用MVC.RegisterAttributedMVC()方法即可。
+[Module(Priority = 150)]                                   // 可省略：默认 10000，排在内置模块之后
+public class InventoryManager : Module, IInventoryManager
+{
+    protected override void OnPreparatory() { }            // 跨模块依赖在这里取
+    protected override void OnUpdate() { }                 // 自动进入每帧轮询
+    public void AddItem(int id, int count) { }
+}
+```
 
-- 派生的代理类需要覆写构造函数，并传入NAME参数。
+详见 [自定义模块](Docs/MODULE.md)。
 
-- 需要注意，MVC.RegisterAttributedMVC()方法需要传入对应的程序集。支持多程序集反射。
+4. **用实体**：
 
-<a name="注意事项"></a>
+```csharp
+CosmosEntry.EntityManager.RegisterEntityAsync<EnemyEntity>(new EntityAssetInfo("Enemy"));
+var enemy = CosmosEntry.EntityManager.ShowEntity<EnemyEntity>("Enemy");
 
-## 注意事项
+CosmosEntry.EntityManager.RegisterLogicEntity<BattleLogic>("battle", "logic");  // 无 GameObject
+var logic = CosmosEntry.EntityManager.ShowEntity<BattleLogic>("battle");
+```
 
-- 内置案例地址:Assets\Examples\ 。
+<a name="项目结构"></a>
+
+## 项目结构
+
+```text
+Assets/CosmosFramework
+├─ Runtime
+│  ├─ CosmosEntry.cs            应用级门面：启动、取模块、全局轮询事件
+│  ├─ CosmosConfig.cs           启动配置（ScriptableObject）
+│  ├─ Base
+│  │  ├─ Async                  统一异步：OperationBase / OperationSystem / Async
+│  │  ├─ Attribute              通用特性（[Module] 等）
+│  │  ├─ Behaviour              ILifecycle 生命周期契约
+│  │  ├─ Constants              全局常量
+│  │  ├─ Dataset                数据集基类
+│  │  ├─ DataStructure          池、树、跳表、四叉树、网格、A*、AOI、Fix64、几何
+│  │  ├─ EventCore              事件内核
+│  │  ├─ Extensions             扩展方法
+│  │  ├─ ReferencePool          引用池
+│  │  ├─ Reactive               响应式基座（Observable / Subject / ReactiveProperty）
+│  │  ├─ ResourceAbstractions   资源契约（Provider / Handle / Operation）
+│  │  ├─ Singleton              Singleton / ConcurrentSingleton / MonoSingleton
+│  │  ├─ Timer                  TickTimer
+│  │  └─ Utility                15 个静态工具分册
+│  ├─ Modules                  13 个内置模块 + Main（模块系统）
+│  ├─ Integrations             Addressables / YooAsset / QuarkAsset
+│  ├─ Architeture              LiteMVC / PureMVC
+│  ├─ ModulesDebuger           模块调试窗口
+│  └─ 3rdParty                 Hydrogen（TCP）、LitJson（JSON）
+└─ Editor                       配置面板、搜索、脚本头、编辑器协程、资源兜底 Provider
+```
+
+<a name="核心机制"></a>
+
+## 核心机制
+
+### 模块生命周期与优先级
+
+```text
+注册(OnInitialization) → 激活(OnActive) → 准备(OnPreparatory)
+  → 每帧(OnUpdate / OnFixedUpdate / OnLateUpdate / OnElapseUpdate)
+  → 失活(OnDeactive) → 终止(OnTermination)
+```
+
+- `[Module(Priority = n)]`：数值越小越先；内置模块占 `100~1300`，自定义模块默认 `10000`；
+- `OnInitialization` 只能依赖更早的模块，跨模块依赖放 `OnPreparatory`；
+- 重写 `OnUpdate` 即自动进入轮询，由 `MonoGameManager`（`[DefaultExecutionOrder(-20000)]`）统一驱动；
+- 契约是 `IModuleManager` 派生接口，解析顺序：`I{类名}` → 后缀匹配 → 唯一候选 → 报错；同一契约只能有一个模块。
+
+### 刷新体系
+
+| 方式 | 适用 |
+| --- | --- |
+| `MonoBehaviour.Update` | 普通表现脚本 |
+| Entity 集中刷新 | 实体：实现 `IEntityTickable` 等接口，由 Entity 模块统一派发，支持组冻结与个体暂停 |
+| 全局事件 | `CosmosEntry.TickRefreshHandler` / `FixedRefreshHandler` / `LateRefreshHandler` / `ElapseRefreshHandler` |
+| `TickTimer` | 需要独立计时器的逻辑 |
+
+### 线程
+
+- 框架轮询全部在主线程；
+- 后台线程回调统一走 `UnityMainThread.Post` / `UnityMainThread.Send`，由 `MonoGameManager.Update` 每帧 `Drain`；
+- 网络通道的 await 等待器已内置该兜底。
+
+<a name="模块一览"></a>
+
+## 模块一览
+
+| 模块 | 契约 | 职责 |
+| --- | --- | --- |
+| Event | `IEventManager` | 响应式事件中心：`Subscribe` 返回 `IDisposable`，`Observe<T>()` 可接操作符 |
+| Resource | `IResourceManager` | 可插拔资源桥：句柄与协程 API、引用计数、加载诊断 |
+| WebRequest | `IWebRequestManager` | HTTP 请求：句柄 + 超时 / 重试 / 优先级 / 取消 |
+| DataTable | `IDataTableManager` | 只读共享行 + 主键索引，状态机加载、可重载 |
+| ObjectPool | `IObjectPoolManager` | 预制体对象池，支持过期回收 |
+| Entity | `IEntityManager` | 对象存活 + 集中刷新：`EntityObject`（有 GameObject）/ `EntityLogic`（纯逻辑）、分组冻结 |
+| UI | `IUIManager` | 界面加载 / 激活 / 分组 / 优先级（`IUIForm` 生命周期） |
+| Audio | `IAudioManager` | 音效注册与播放、分组、淡入淡出、音量包络、抢占 |
+| Input | `IInputManager` | 虚拟轴 / 虚拟按钮、输入屏蔽、可替换 `IInputHelper` |
+| FSM | `IFSMManager` | 按 owner 类型管理的状态机（`FSMState<T>`） |
+| Procedure | `IProcedureManager` | 流程节点：启动 / 登录 / 进场景等阶段 |
+| Network | `INetworkManager` | 通道注册与 Tick；协议实现位于 `Assets/CosmosLibs`（KCP / TCP / SUDP / RUDP） |
+| Download | `IDownloadManager` | 文件下载：断点续传、并发上限、暂停 / 恢复 / 取消 |
+
+> 要文件用 Download，要数据用 WebRequest；两者分工见 [网络文档](Docs/NETWORKING.md)。
+
+<a name="工具类"></a>
+
+## 工具类
+
+`Cosmos.Utility` 下的静态分册，随取随用：
+
+| 分册 | 内容 |
+| --- | --- |
+| Text / Converter | 字符串校验与拼接、十六进制、Base64、字节格式化 |
+| IO / Compression | 文件与目录读写、复制、大小、MD5；Zip 压缩解压 |
+| Time | 时间戳、日/周/月计算、时区转换 |
+| Encryption | MD5 / HMAC / AES / XOR / GUID |
+| Algorithm | 二分查找、排序、洗牌、随机与正态分布 |
+| Assert | 断言、异常捕获 |
+| Debug / Json | 日志与 JSON（帮助体可替换） |
+| Net | 请求判定、内容长度、本机 IP、公网 IP、Ping |
+| Unity | 销毁、截图、随机点、Gizmos 绘制、协程任务（延时 / 帧 / 条件） |
+| Assembly / Program | 反射取类型与实例、进程启动与内存占用 |
+
+常用 API 与示例见 [手册 §4](Docs/MANUAL.md)。
+
+<a name="基础底座"></a>
+
+## 基础底座
+
+- **数据结构**：`Pool<T>` / `ConcurrentPool<T>`、`BiDictionary`、`LruDictionary`、`LimitedQueue`、`SkipList` / `AOISkipList`、`QuadTree`、`RectangleGrid` / `SquareGrid`、`AStar`（含 Diagonal / Manhattan / Euclidean）、`AOIZone`、`Fix64`（确定性定点数）、`BasicFsm` / `SimpleFsm`、几何体（均含 Fix64 版本）。
+- **异步**：`OperationBase` / `OperationSystem` / `Async.WaitUntil` / `WaitForSeconds` / `NextFrame` / `WaitForTask`；协程可 `await`。
+- **池**：`Pool<T>` 对象池、`ReferencePool` 引用池。
+- **单例**：`Singleton<T>` / `ConcurrentSingleton<T>` / `MonoSingleton<T>`。
+- **响应式**：`Observable<T>` / `Subject<T>` / `ReactiveProperty<T>` / `CompositeDisposable`，Event 模块建立在其上。
+- **扩展方法**：基础类型、集合、Unity 组件、反射、文件等分组。
+- **生命周期**：`ILifecycle` 统一契约；`EventCore` 事件内核；`DatasetBase` 数据集基类。
+
+<a name="架构模板"></a>
+
+## 架构模板
+
+| 模板 | 组成 | 适用 |
+| --- | --- | --- |
+| LiteMVC | `Model` / `View` / `Controller` + `CommandBinder` / `CommandPool` | 轻量、事件驱动 |
+| PureMVC | `Model` / `View` / `Controller` + `Proxy` / `Mediator` / `Command` / `Notification`，支持 `[MVCProxy]` 等特性与 `MVC.RegisterAttributedMVC()` 自动注册 | 标准 PureMVC 分层 |
+
+<a name="资源集成"></a>
+
+## 资源集成
+
+| 方案 | 实现 | 说明 |
+| --- | --- | --- |
+| Addressables | `AddressablesProvider` | Unity 官方可寻址资源 |
+| YooAsset | `YooAssetProvider` | 包管理式资源 |
+| QuarkAsset | `QuarkAssetProvider` | 轻量方案 |
+| AssetDatabase | `Editor/ResourceFallback/AssetDatabaseProvider` | 编辑器兜底，无需构建产物 |
+
+通过 `IResourceProvider` 接入；`SetProvider(name, settings)` 或 `RegisterProvider(name, factory)` 注册自定义实现。契约见 [资源模块文档](Docs/RESOURCE.md)。
+
+<a name="编辑器工具"></a>
+
+## 编辑器工具
+
+`CosmosConfig` 配置面板、脚本头生成、层级查找、AssetDatabase / GitHub 搜索、编辑器协程、数据集面板、模块窗口基类、AssetBundle 与快捷命令。运行时另有模块调试窗口（`ModulesDebuger`）。
+
+<a name="文档索引"></a>
+
+## 文档索引
+
+| 文档 | 内容 |
+| --- | --- |
+| [使用手册](Docs/MANUAL.md) | 模块、工具类、底座、用法与边界（主参考） |
+| [自定义模块](Docs/MODULE.md) | 契约命名、优先级、生命周期、报错对照 |
+| [启动与模块注册](Docs/BOOTSTRAP.md) | 启动链、注册表、扫描与排序 |
+| [实体](Docs/ENTITY.md) | 两种载体、集中刷新、分组冻结 |
+| [响应式](Docs/REACTIVE.md) | Subject / ReactiveProperty / 操作符 / 组合释放 |
+| [资源](Docs/RESOURCE.md) | Provider 契约、句柄 API、诊断 |
+| [异步](Docs/ASYNC.md) | 统一异步方案 |
+| [音频](Docs/AUDIO.md) / [数据表](Docs/DATATABLE.md) / [输入](Docs/INPUT.md) / [下载](Docs/DOWNLOAD.md) | 对应模块细节 |
+| [网络通道异步](Docs/NETWORK_ASYNC.md) | 通道 await、超时、取消、线程兜底 |
+| [WebRequest 与 Download 分工](Docs/NETWORKING.md) | 选型规则 |
+| [CHANGELOG](CHANGELOG.md) | 版本变更记录 |
+| [分支与发布](Docs/RELEASING.md) | 分支约定、发版清单、仓库设置 |
+
+<a name="已知边界"></a>
+
+## 已知边界
+
+- `IObjectPool` 接口未暴露 `Spawn()`，需要具体类型 `ObjectPool`。
+- 网络通道必须被 `TickRefresh` 驱动（注册到 `NetworkManager` 或自行调用），否则 await 只会超时。
+- 模块取用必须在启动之后；`GetModule<T>()` 未注册会抛异常。
+- 实体刷新中允许隐藏实例，但不允许注册 / 注销实体。
+- `AStar` 的开集是线性选点（每次展开 O(开集大小)），未使用堆；大面积不可达地图的开销集中在展开阶段（100×100 约 20 ms）。
+- AOI 移除实体时不会把它从其它实体的 `ViewEntities` 里摘除（实例会被池复用），消费侧应以 `Exited` / `Entered` 为准，不要长期持有实体引用。
 
 <a name="UPM"></a>
 
 ## UPM
 
-- CosmosFramework遵循unityPackage规范，可以完全将整个库放置于Packages目录下。
+CosmosFramework 遵循 Unity Package 规范，包根为 `Assets/CosmosFramework`（版本号见其中的 `package.json`）。
 
-- 从本地导入：选择Assets/CosmosFramework文件夹，拷贝到工程的Packages目录下。
+**发行版（推荐）** —— 固定到 tag，不受后续提交影响。在 `Packages/manifest.json` 的 `dependencies` 中加入：
 
-- 从git导入：填入url: https://github.com/DonnYep/CosmosFramework.git#v1.3_upm
+```json
+"com.cosmosframework": "https://github.com/DonnYep/CosmosFramework.git?path=/Assets/CosmosFramework#v2.0.1"
+```
+
+- 把 `#v2.0.1` 换成 `#main`：跟随稳定线的最新发布版。
+- 把 `#v2.0.1` 换成 `#dev`：尝鲜开发线，可能含未发布改动，**不保证可编译**，仅建议试用与反馈。
+- 不用 Git URL 时：把 `Assets/CosmosFramework` 整个目录拷进工程的 `Packages` 目录（Unity 视为本地包）。
+
+> `?path=` 需要 Unity 2019.3 及以上；推荐 Unity 2021.3 LTS。版本变更见 [CHANGELOG](CHANGELOG.md)。
 
 <a name="其他"></a>
 
 ## 其他
 
-- 部分模块演示请观看视频:
+- 内置案例：`Assets/Examples/`（含 Entity、UI、Audio、Input、Network、Procedure 等示例）
+- 模块演示视频：
     - https://www.bilibili.com/video/BV11P4y1U7vB
     - https://www.bilibili.com/video/BV1x741157eR
     - https://www.bilibili.com/video/BV17u411Z7Ni
-    
+
 <a name="Library-link"></a>
 
 ## Library link
 
-- HybridCLR:https://github.com/focus-creative-games/hybridclr
-
-- CosmosEngine:https://github.com/DonnYep/CosmosEngine
-
-- QuarkAsset:https://github.com/DonnYep/QuarkAsset
-
-- KCP C:https://github.com/skywind3000/kcp
-    
-- KCP CSharp:https://github.com/vis2k/kcp2k
-    
-- TCP:https://github.com/vis2k/Telepathy
-
-- Mirror:https://github.com/vis2k/Mirror
+- Hydrogen: https://github.com/DonnYep/Hydrogen
+- HybridCLR: https://github.com/focus-creative-games/hybridclr
+- CosmosEngine: https://github.com/DonnYep/CosmosEngine
+- QuarkAsset: https://github.com/DonnYep/QuarkAsset
+- KCP C: https://github.com/skywind3000/kcp
+- KCP CSharp: https://github.com/vis2k/kcp2k
+- TCP: https://github.com/vis2k/Telepathy
+- Mirror: https://github.com/vis2k/Mirror
 
 **[回到最上层](#导航)**

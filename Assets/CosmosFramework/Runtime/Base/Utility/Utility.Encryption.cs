@@ -2,6 +2,7 @@
 using System.Text;
 using System.Security.Cryptography;
 using System.IO;
+using System.Runtime.Remoting.Contexts;
 namespace Cosmos
 {
     public static partial class Utility
@@ -77,6 +78,7 @@ namespace Cosmos
                 MD5 md5 = MD5.Create();
                 byte[] cryptBytes = md5.ComputeHash(md5Bytes);
                 int length = cryptBytes.Length;
+                stringBuilderCache.Clear();
                 for (int i = 0; i < length; i++)
                 {
                     //X大写的16进制，x小写
@@ -520,19 +522,26 @@ namespace Cosmos
                 if (key == null)
                     throw new ArgumentNullException("key is invalid ! ");
                 var bytes = Convert.FromBase64String(context);
+                if (bytes.Length <= 16)
+                    throw new ArgumentException("context is too short ! ", nameof(context));
                 using (var aes = new AesCryptoServiceProvider())
                 {
                     using (MemoryStream ms = new MemoryStream(bytes))
                     {
                         var iv = new byte[16];
-                        ms.Read(iv, 0, 16);
-                        using (var cryptStream = new CryptoStream(ms, aes.CreateDecryptor(key, iv), CryptoStreamMode.Read))
+                        var read = 0;
+                        while (read < iv.Length)
                         {
-                            using (StreamReader reader = new StreamReader(cryptStream))
-                            {
-                                var data = reader.ReadToEnd();
-                                return Convert.FromBase64String(data);
-                            }
+                            var count = ms.Read(iv, read, iv.Length - read);
+                            if (count <= 0)
+                                throw new EndOfStreamException("context is too short ! ");
+                            read += count;
+                        }
+                        using (var cryptStream = new CryptoStream(ms, aes.CreateDecryptor(key, iv), CryptoStreamMode.Read))
+                        using (var output = new MemoryStream())
+                        {
+                            cryptStream.CopyTo(output);
+                            return output.ToArray();
                         }
                     }
                 }
@@ -622,6 +631,80 @@ namespace Cosmos
                     }
                     return sBuilder.ToString();
                 }
+            }
+            /// <summary>
+            /// 生成16进制的md5
+            /// </summary>
+            /// <param name="stream">传入的流数据</param>
+            /// <returns>16进制的md5</returns>
+            public static string GenerateHexMD5(Stream stream)
+            {
+#if NET_STANDARD_2_0
+                using (var hash = MD5.Create())
+#elif NET_4_6
+                using (var hash = MD5Cng.Create())
+#endif
+                {
+                    byte[] data = hash.ComputeHash(stream);
+                    var sBuilder = new StringBuilder();
+                    for (int i = 0; i < data.Length; i++)
+                    {
+                        sBuilder.Append(data[i].ToString("x2"));
+                    }
+                    return sBuilder.ToString();
+                }
+            }
+            /// <summary>
+            /// AES加密
+            /// </summary>
+            /// <param name="context">原始字节流</param>
+            /// <param name="key">加密的密码</param>
+            /// <param name="iv">密钥</param>
+            /// <returns>加密后的数据</returns>
+            public static byte[] AESEncrypt(byte[] context, string key, string iv)
+            {
+                RijndaelManaged rijndaelCipher = new RijndaelManaged();
+                rijndaelCipher.Mode = CipherMode.CBC;
+                rijndaelCipher.Padding = PaddingMode.PKCS7;
+                rijndaelCipher.KeySize = 128;
+                rijndaelCipher.BlockSize = 128;
+
+                byte[] keyBytes = Encoding.UTF8.GetBytes(key);
+                rijndaelCipher.Key = keyBytes;
+
+                byte[] ivBytes = Encoding.UTF8.GetBytes(iv);
+                rijndaelCipher.IV = ivBytes;
+
+                ICryptoTransform transform = rijndaelCipher.CreateEncryptor();
+                byte[] cipherBytes = transform.TransformFinalBlock(context, 0, context.Length);
+
+                return cipherBytes;
+            }
+            /// <summary>
+            /// AES解密
+            /// </summary>
+            /// <param name="context">原始字节流</param>
+            /// <param name="key">加密的密码</param>
+            /// <param name="iv">密钥</param>
+            /// <returns>解密后的数据</returns>
+            public static byte[] AESDecrypt(byte[] context, string key, string iv)
+            {
+                RijndaelManaged rijndaelCipher = new RijndaelManaged();
+                rijndaelCipher.Mode = CipherMode.CBC;
+                rijndaelCipher.Padding = PaddingMode.PKCS7;
+                rijndaelCipher.KeySize = 128;
+                rijndaelCipher.BlockSize = 128;
+
+                byte[] keyBytes = Encoding.UTF8.GetBytes(key);
+                rijndaelCipher.Key = keyBytes;
+
+                byte[] ivBytes = Encoding.UTF8.GetBytes(iv);
+                rijndaelCipher.IV = ivBytes;
+
+                ICryptoTransform transform = rijndaelCipher.CreateDecryptor();
+                byte[] plainText = transform.TransformFinalBlock(context, 0, context.Length);
+
+                return plainText;
             }
         }
     }

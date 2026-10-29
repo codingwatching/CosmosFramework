@@ -10,37 +10,43 @@ namespace Cosmos
         public static class Assembly
         {
             /// <summary>
-            /// 默认使用应用的程序集，若使用了Assembly.Load，则需要更新域程序集。
+            /// 使用应用的程序集域
             /// </summary>
-            static System.Reflection.Assembly[] domainAssemblies;
-            static Assembly()
+            public static System.Reflection.Assembly[] DomainAssemblies
             {
-                domainAssemblies = AppDomain.CurrentDomain.GetAssemblies();
-            }
-            /// <summary>
-            /// 设置域程序集
-            /// </summary>
-            /// <param name="assemblies">程序集</param>
-            public static void SetDomainAssemblies(System.Reflection.Assembly[] assemblies)
-            {
-                domainAssemblies = assemblies;
+                get { return AppDomain.CurrentDomain.GetAssemblies(); }
             }
             /// <summary>
             /// 从域程序集中获取类。
+            /// <para>命中过的类型会被缓存（==命中才会缓存，未命中不缓存，避免程序集延迟加载时缓存到错误结果）。</para>
             /// </summary>
             /// <param name="typeName">类型完全限定名</param>
             /// <returns>类型</returns>
             public static Type GetType(string typeName)
             {
+                if (string.IsNullOrEmpty(typeName))
+                    return null;
+                if (typeCache.TryGetValue(typeName, out var cachedType))
+                    return cachedType;
                 Type type = null;
-                foreach (var assembly in domainAssemblies)
+                foreach (var assembly in DomainAssemblies)
                 {
                     type = assembly.GetType(typeName);
                     if (type != null)
                         break;
                 }
+                if (type != null)
+                    typeCache.Add(typeName, type);
                 return type;
             }
+            /// <summary>
+            /// 清空类型名缓存（动态加载程序集后需要重新解析时调用）
+            /// </summary>
+            public static void ClearTypeCache()
+            {
+                typeCache.Clear();
+            }
+            readonly static Dictionary<string, Type> typeCache = new Dictionary<string, Type>();
             /// <summary>
             /// 获取AppDomain中指定的程序集。
             /// </summary>
@@ -48,7 +54,7 @@ namespace Cosmos
             /// <returns>程序集</returns>
             public static System.Reflection.Assembly GetAssembly(string assemblyName)
             {
-                foreach (var assembly in domainAssemblies)
+                foreach (var assembly in DomainAssemblies)
                 {
                     if (assembly.GetName().Name == assemblyName)
                         return assembly;
@@ -74,7 +80,7 @@ namespace Cosmos
             public static object GetTypeInstance(string typeName)
             {
                 object inst = null;
-                foreach (var a in domainAssemblies)
+                foreach (var a in DomainAssemblies)
                 {
                     var dstType = a.GetType(typeName);
                     if (dstType != null)
@@ -94,7 +100,7 @@ namespace Cosmos
             public static object GetTypeInstance(string typeName, object[] args)
             {
                 object inst = null;
-                foreach (var a in domainAssemblies)
+                foreach (var a in DomainAssemblies)
                 {
                     var dstType = a.GetType(typeName);
                     if (dstType != null)
@@ -115,7 +121,7 @@ namespace Cosmos
             public static T GetTypeInstance<T>(string typeName)
             {
                 T inst = default;
-                foreach (var a in domainAssemblies)
+                foreach (var a in DomainAssemblies)
                 {
                     var dstType = a.GetType(typeName);
                     if (dstType != null)
@@ -397,6 +403,8 @@ where K : class
             public static Type[] GetDerivedTypesByAttribute<T>(Type type, bool inherit, System.Reflection.Assembly assembly = null)
     where T : Attribute
             {
+                if (assembly == null)
+                    assembly = type.Assembly;
                 Type[] types = assembly.GetTypes();
                 return types.Where(t =>
                 {
@@ -600,7 +608,116 @@ where K : class
             public static string[] GetDerivedTypeNames<T>()
                 where T : class
             {
-                return GetDerivedTypeNames(typeof(T), domainAssemblies);
+                return GetDerivedTypeNames(typeof(T), DomainAssemblies);
+            }
+            /// <summary>
+            /// 获取应用域内所有可以被实例化的派生类
+            /// </summary>
+            /// <param name="type">基类</param>
+            /// <returns>所有可以被实例化的派生类</returns>
+            public static IList<Type> GetAppDomainAllInstantiableDerivedTypes(Type type)
+            {
+                var assemblies = DomainAssemblies;
+                var typeList = new List<Type>();
+                foreach (var asm in assemblies)
+                {
+                    var types = asm.GetTypes();
+                    var typeArray = types.Where(t => { return type.IsAssignableFrom(t) && t.IsClass && !t.IsAbstract; }).ToArray();
+                    typeList.AddRange(typeArray);
+                }
+                return typeList;
+            }
+            /// <summary>
+            /// 获取应用域内任意一个符合的派生对象
+            /// </summary>
+            /// <typeparam name="T">基类</typeparam>
+            /// <param name="includeSelf">是否包含自身</param>
+            /// <returns>实例对象</returns>
+            public static T GetAppDomainAnyDerivedTypeInstance<T>(bool includeSelf = false)
+                where T : class
+            {
+                Type type = typeof(T);
+                var assemblies = DomainAssemblies;
+                Type subType = default;
+                foreach (var asm in assemblies)
+                {
+                    var types = asm.GetTypes();
+                    var length = types.Length;
+                    for (int i = 0; i < length; i++)
+                    {
+                        var tmpType = types[i];
+                        if (tmpType == type)
+                        {
+                            if (!includeSelf)
+                                continue;
+                        }
+                        if (type.IsAssignableFrom(tmpType) && tmpType.IsClass && !tmpType.IsAbstract)
+                        {
+                            subType = tmpType;
+                            break;
+                        }
+                    }
+                }
+                if (subType == null)
+                {
+                    return default;
+                }
+                return GetTypeInstance(subType) as T;
+            }
+            /// <summary>
+            /// 获取一个程序集内任意一个符合的派生对象
+            /// </summary>
+            /// <typeparam name="T">基类</typeparam>
+            /// <param name="assemblyName">程序集名称</param>
+            /// <returns>实例对象</returns>
+            public static T GetAssemblyAnyDerivedTypeInstance<T>(string assemblyName)
+                where T : class
+            {
+                Type type = typeof(T);
+                var asm = GetAssembly(assemblyName);
+                var types = asm.GetTypes();
+                var length = types.Length;
+                Type subType = default;
+                for (int i = 0; i < length; i++)
+                {
+                    var tmpType = types[i];
+                    if (type.IsAssignableFrom(tmpType) && tmpType.IsClass && !tmpType.IsAbstract)
+                    {
+                        subType = tmpType;
+                        break;
+                    }
+                }
+                if (subType == null)
+                {
+                    return default;
+                }
+                return GetTypeInstance(subType) as T;
+            }
+            /// <summary>
+            /// 获取应用域内所有派生对象
+            /// </summary>
+            /// <typeparam name="T">基类</typeparam>
+            /// <returns>实例对象</returns>
+            public static IList<T> GetAppDomainAllDerivedTypeInstances<T>()
+                where T : class
+            {
+                Type type = typeof(T);
+                var assemblies = DomainAssemblies;
+                var typeList = new List<Type>();
+                foreach (var asm in assemblies)
+                {
+                    var types = asm.GetTypes();
+                    var typeArray = types.Where(t => { return type.IsAssignableFrom(t) && t.IsClass && !t.IsAbstract; }).ToArray();
+                    typeList.AddRange(typeArray);
+                }
+                var instList = new List<T>();
+                var length = typeList.Count;
+                for (int i = 0; i < length; i++)
+                {
+                    var inst = GetTypeInstance(typeList[i]) as T;
+                    instList.Add(inst);
+                }
+                return instList;
             }
             /// <summary>
             /// 将一个对象上的字段值赋予到另一个对象上名字相同的字段上。
@@ -889,6 +1006,43 @@ where K : class
                 if (method == null)
                     throw new NullReferenceException($"Type : {type} can not find method : {methodName} !");
                 return method.Invoke(obj, parameters);
+            }
+            /// <summary>
+            /// 调用静态方法。
+            /// </summary>
+            /// <param name="className">类名</param>
+            /// <param name="methodName">方法名</param>
+            /// <param name="parameters">参数</param>
+            /// <returns>返回值</returns>
+            public static object InvokeStaticMethod(string className, string methodName, object[] parameters = null)
+            {
+                if (string.IsNullOrEmpty(className))
+                    throw new ArgumentNullException("ClassName is invalid !");
+                if (string.IsNullOrEmpty(methodName))
+                    throw new ArgumentNullException("MethodName is invalid !");
+                Type type = GetType(className);
+                var method = type.GetMethod(methodName, BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic);
+                if (method == null)
+                    throw new NullReferenceException($"Type : {type} can not find method : {methodName} !");
+                return method.Invoke(null, parameters);
+            }
+            /// <summary>
+            /// 调用静态方法。
+            /// </summary>
+            /// <param name="type">方法所在的type</param>
+            /// <param name="methodName">方法名</param>
+            /// <param name="parameters">参数</param>
+            /// <returns>返回值</returns>
+            public static object InvokeStaticMethod(Type type, string methodName, object[] parameters = null)
+            {
+                if (type == null)
+                    throw new ArgumentNullException("Type is invalid !");
+                if (string.IsNullOrEmpty(methodName))
+                    throw new ArgumentNullException("MethodName is invalid !");
+                var method = type.GetMethod(methodName, BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic);
+                if (method == null)
+                    throw new NullReferenceException($"Type : {type} can not find method : {methodName} !");
+                return method.Invoke(null, parameters);
             }
             /// <summary>
             /// 设置对象属性值。

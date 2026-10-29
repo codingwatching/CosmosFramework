@@ -1,36 +1,39 @@
-﻿using UnityEngine;
-using Cosmos.Resource;
-using System.IO;
 using System;
+using System.Collections.Generic;
+using UnityEngine;
+using Cosmos.Input;
+using Cosmos.Resource;
 
 namespace Cosmos
 {
+    /// <summary>
+    /// 框架启动配置。
+    /// <para>启动流程只做三件事：设置静态配置 → 启动模块（内置零反射 + 外部程序集按需发现）→ 初始化资源与输入帮助体。</para>
+    /// <para>资源方案是可插拔的：这里只需要填写 Provider 名称（如 Addressables / YooAsset / QuarkAsset / AssetDatabase）与参数，</para>
+    /// <para>框架不依赖任何具体资源库，UI / Entity / Audio / Scene / DataTable 等模块通过资源桥统一访问。</para>
+    /// </summary>
     [DisallowMultipleComponent]
+    [DefaultExecutionOrder(-10000)]
     public class CosmosConfig : MonoBehaviour
     {
         [SerializeField] bool launchAppDomainModules = true;
         [SerializeField] bool printModulePreparatory = false;
-        [SerializeField] ResourceLoadMode resourceLoadMode;
-        [SerializeField] string resourceLoaderName;
-        [SerializeField] int resourceLoaderIndex;
-        [SerializeField] bool printLogWhenAssetNotExists;
+
+        [Header("Resource")]
+        [Tooltip("资源方案名称：Addressables / YooAsset / QuarkAsset / AssetDatabase（编辑器兜底）")]
+        [SerializeField] string resourceProviderName = "AssetDatabase";
+        [Tooltip("Provider 参数，形如 key=value;key2=value2")]
+        [SerializeField] string resourceProviderSettings = string.Empty;
+        [Tooltip("是否记录资源加载诊断（编辑器默认开启）")]
+        [SerializeField] bool resourceDiagnostics = true;
 
         [SerializeField] int debugHelperIndex;
         [SerializeField] int jsonHelperIndex;
-        [SerializeField] int messagePackHelperIndex;
 
         [SerializeField] string debugHelperName;
         [SerializeField] string jsonHelperName;
-        [SerializeField] string messagePackHelperName;
 
         [SerializeField] bool runInBackground;
-
-        [SerializeField] ResourceDataset resourceDataset;
-        [SerializeField] ResourceBundlePathType resourceBundlePathType;
-        [SerializeField] string relativeBundlePath;
-
-        [SerializeField] bool manifestEncrytion = false;
-        [SerializeField] string manifestEncrytionKey = "CosmosBundlesKey";
 
         [SerializeField] bool drawDebugWindow;
         [SerializeField] bool disableDebugLog = false;
@@ -39,78 +42,26 @@ namespace Cosmos
         [SerializeField] string inputHelperName;
 
         [SerializeField] bool moduleConfigFoldout;
+
+        /// <summary>
+        /// 按配置选择并初始化资源 Provider。
+        /// </summary>
         public void LoadResource()
         {
-            ResourceDataProxy.PrintLogWhenAssetNotExists = printLogWhenAssetNotExists;
-            switch (resourceLoadMode)
+            if (!GameManager.TryGetModule<IResourceManager>(out var resourceManager))
             {
-                case ResourceLoadMode.Resource:
-                    CosmosEntry.ResourceManager.SetDefaultLoadHeper(resourceLoadMode, new ResourcesLoader());
-                    break;
-                case ResourceLoadMode.AssetBundle:
-                    {
-                        string manifestPath = string.Empty;
-                        string bundlePath = string.Empty;
-                        string prefix = ResourceUtility.Prefix;
-                        switch (resourceBundlePathType)
-                        {
-                            case ResourceBundlePathType.StreamingAssets:
-                                bundlePath = Application.streamingAssetsPath;
-                                break;
-                            case ResourceBundlePathType.PersistentDataPath:
-                                bundlePath = Application.persistentDataPath;
-                                break;
-                        }
-                        ResourceDataProxy.ResourceBundlePathType = resourceBundlePathType;
-                        string formattedBundlePath = string.Empty;
-                        if (!string.IsNullOrEmpty(relativeBundlePath))
-                        {
-                            manifestPath = Path.Combine(bundlePath, relativeBundlePath, ResourceConstants.RESOURCE_MANIFEST);
-                            formattedBundlePath = Utility.IO.CombineURL(bundlePath, relativeBundlePath);
-                        }
-                        else
-                        {
-                            manifestPath = Path.Combine(bundlePath, ResourceConstants.RESOURCE_MANIFEST);
-                            formattedBundlePath = bundlePath;
-                        }
-                        manifestPath = prefix + manifestPath;
-                        //webrequest需要加file://，System.IO不需要加。加载器使用的是unity原生的assetbundle.loadxxxx，属于IO，因此无需加前缀；
-                        string formattedManifestEncrytionKey = string.Empty;
-                        if (manifestEncrytion)
-                            formattedManifestEncrytionKey = manifestEncrytionKey;
-                        else
-                            formattedManifestEncrytionKey = string.Empty;
-                        var assetBundleLoader = new AssetBundleLoader();
-
-                        CosmosEntry.ResourceManager.SetDefaultLoadHeper(resourceLoadMode, assetBundleLoader);
-                        var taskId = CosmosEntry.ResourceManager.StartRequestManifest(manifestPath, formattedManifestEncrytionKey, formattedBundlePath);
-                        assetBundleLoader.TaskId = taskId;
-                    }
-                    break;
-                case ResourceLoadMode.AssetDatabase:
-                    var assetDatabaseLoader = new AssetDatabaseLoader();
-                    assetDatabaseLoader.SetResourceDataset(resourceDataset);
-                    CosmosEntry.ResourceManager.SetDefaultLoadHeper(resourceLoadMode, assetDatabaseLoader);
-                    break;
-                case ResourceLoadMode.CustomLoader:
-                    {
-                        if (string.IsNullOrEmpty(resourceLoaderName) || resourceLoaderName == Constants.NONE)
-                        {
-                            throw new Exception("CustomLoader is invalid !");
-                        }
-                        var loadHelper = Utility.Assembly.GetTypeInstance(resourceLoaderName);
-                        if (loadHelper != null)
-                            CosmosEntry.ResourceManager.SetDefaultLoadHeper(resourceLoadMode, (IResourceLoadHelper)loadHelper);
-                    }
-                    break;
+                Debug.LogError($"[CosmosConfig] resource module is missing; keep launchAppDomainModules = true (or pass ResourceManager to CosmosEntry.LaunchModules).");
+                return;
             }
+            resourceManager.DiagnosticsEnabled = resourceDiagnostics;
+            resourceManager.SetProvider(resourceProviderName, resourceProviderSettings);
         }
+
         protected virtual void Awake()
         {
+            //静态配置先落地：模块初始化阶段就可能用到 Debug / Json 帮助体
+            ApplyStaticConfig();
             LoadHelpers();
-            CosmosEntry.PrintModulePreparatory = printModulePreparatory;
-            Application.runInBackground = runInBackground;
-            Utility.Debug.DisableDebugLog = disableDebugLog;
             if (launchAppDomainModules)
             {
                 CosmosEntry.LaunchAppDomainModules();
@@ -118,35 +69,68 @@ namespace Cosmos
                 SetInputHelper();
             }
         }
+        /// <summary>
+        /// 应用与模块无关的静态配置
+        /// </summary>
+        void ApplyStaticConfig()
+        {
+            CosmosEntry.PrintModulePreparatory = printModulePreparatory;
+            Application.runInBackground = runInBackground;
+            Utility.Debug.DisableDebugLog = disableDebugLog;
+        }
+        /// <summary>
+        /// 按配置装配 Debug / Json 帮助体。
+        /// <para>只在这里解析一次类型名，并且解析失败会明确告警（旧实现是静默忽略）。</para>
+        /// </summary>
         void LoadHelpers()
         {
-            if (!string.IsNullOrEmpty(debugHelperName) && debugHelperName != Constants.NONE)
+            if (TryResolveHelper<Utility.Debug.IDebugHelper>(debugHelperName, out var debugHelper))
             {
-                var debugHelper = Utility.Assembly.GetTypeInstance(debugHelperName);
-                if (debugHelper != null)
-                    Utility.Debug.SetHelper((Utility.Debug.IDebugHelper)debugHelper);
+                Utility.Debug.SetHelper(debugHelper);
             }
-            if (!string.IsNullOrEmpty(jsonHelperName) && jsonHelperName != Constants.NONE)
+            if (TryResolveHelper<Utility.Json.IJsonHelper>(jsonHelperName, out var jsonHelper))
             {
-                var jsonHelper = Utility.Assembly.GetTypeInstance(jsonHelperName);
-                if (jsonHelper != null)
-                    Utility.Json.SetHelper((Utility.Json.IJsonHelper)jsonHelper);
-            }
-            if (!string.IsNullOrEmpty(messagePackHelperName) && messagePackHelperName != Constants.NONE)
-            {
-                var messagePackHelper = Utility.Assembly.GetTypeInstance(messagePackHelperName);
-                if (messagePackHelper != null)
-                    Utility.MessagePack.SetHelper((Utility.MessagePack.IMessagePackHelper)messagePackHelper);
+                Utility.Json.SetHelper(jsonHelper);
             }
         }
         void SetInputHelper()
         {
-            if (!string.IsNullOrEmpty(inputHelperName) && inputHelperName != Constants.NONE)
+            if (!GameManager.TryGetModule<IInputManager>(out var inputManager))
             {
-                var inputHelper = Utility.Assembly.GetTypeInstance<Cosmos.Input.IInputHelper>(inputHelperName);
-                if (inputHelper != null)
-                    CosmosEntry.InputManager.SetInputHelper(inputHelper);
+                Debug.LogError("[CosmosConfig] input module is missing, input helper is not applied !");
+                return;
             }
+            if (TryResolveHelper<Cosmos.Input.IInputHelper>(inputHelperName, out var inputHelper))
+            {
+                inputManager.SetInputHelper(inputHelper);
+            }
+        }
+        /// <summary>
+        /// 解析帮助体类型并实例化
+        /// </summary>
+        /// <typeparam name="T">帮助体接口</typeparam>
+        /// <param name="typeName">类型完全限定名</param>
+        /// <param name="helper">帮助体实例</param>
+        /// <returns>是否解析成功</returns>
+        static bool TryResolveHelper<T>(string typeName, out T helper)
+            where T : class
+        {
+            helper = null;
+            if (string.IsNullOrEmpty(typeName) || typeName == Constants.NONE)
+                return false;
+            var type = Utility.Assembly.GetType(typeName);
+            if (type == null)
+            {
+                Debug.LogWarning($"[CosmosConfig] helper type is not found : {typeName} (expected interface {typeof(T).Name})");
+                return false;
+            }
+            if (!typeof(T).IsAssignableFrom(type) || type.IsAbstract || type.GetConstructor(Type.EmptyTypes) == null)
+            {
+                Debug.LogWarning($"[CosmosConfig] helper type is invalid : {typeName} (must implement {typeof(T).Name} and have a parameterless constructor)");
+                return false;
+            }
+            helper = (T)Activator.CreateInstance(type);
+            return true;
         }
     }
 }

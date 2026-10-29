@@ -32,17 +32,6 @@ namespace Cosmos
             @this.SetActive(false);
             return @this;
         }
-        /// <summary>
-        /// 优化的设置SetActive方法，可以节约重复设置Active的开销
-        /// </summary>
-        public static GameObject SetActiveOptimize(this GameObject @this, bool isActive)
-        {
-            if (@this.activeSelf != isActive)
-            {
-                @this.SetActive(isActive);
-            }
-            return @this;
-        }
         public static GameObject SetName(this GameObject @this, string name)
         {
             @this.name = name;
@@ -109,7 +98,7 @@ where T : Component
             var comp = parentTrans.GetComponent<T>();
             if (comp == null)
             {
-                comp = @this.gameObject.AddComponent<T>();
+                comp = parentTrans.gameObject.AddComponent<T>();
             }
             return comp;
         }
@@ -156,7 +145,10 @@ where T : Component
         public static T GetComponentInPeer<T>(this GameObject @this, string name)
 where T : Component
         {
-            Transform tran = @this.transform.parent.Find(name);
+            Transform parentTrans = @this.transform.parent;
+            if (parentTrans == null)
+                return null;
+            Transform tran = parentTrans.Find(name);
             if (tran != null)
             {
                 return tran.GetComponent<T>();
@@ -166,12 +158,15 @@ where T : Component
         public static T GetOrAddComponentInPeer<T>(this GameObject @this, string name)
 where T : Component
         {
-            Transform tran = @this.transform.parent.Find(name);
+            Transform parentTrans = @this.transform.parent;
+            if (parentTrans == null)
+                return null;
+            Transform tran = parentTrans.Find(name);
             if (tran != null)
             {
                 var comp = tran.GetComponent<T>();
                 if (comp == null)
-                    @this.gameObject.AddComponent<T>();
+                    comp = tran.gameObject.AddComponent<T>();
                 return comp;
             }
             return null;
@@ -187,13 +182,15 @@ where T : Component
 where T : Component
         {
             Transform parentTrans = @this.transform.parent;
+            if (parentTrans == null)
+                return new T[0];
             var childTrans = parentTrans.GetComponentsInChildren<Transform>();
             var length = childTrans.Length;
             Transform[] trans;
-            if (!includeSelf)
+            if (includeSelf)
                 trans = Utility.Algorithm.FindAll(childTrans, t => t.parent == parentTrans);
             else
-                trans = Utility.Algorithm.FindAll(childTrans, t => t.parent == parentTrans && t != @this);
+                trans = Utility.Algorithm.FindAll(childTrans, t => t.parent == parentTrans && t != @this.transform);
             var transLength = trans.Length;
             T[] src = new T[transLength];
             int idx = 0;
@@ -209,6 +206,19 @@ where T : Component
             T[] dst = new T[idx];
             Array.Copy(src, 0, dst, 0, idx);
             return dst;
+        }
+        /// <summary>
+        /// 获取子对象
+        /// </summary>
+        /// <param name="path">相对路径，如 DisplayPanel/btnClose</param>
+        /// <returns>获取到的对象</returns>
+        public static GameObject GetGameObject(this GameObject @this, string path = null)
+        {
+            if (string.IsNullOrEmpty(path))
+            {
+                return @this;
+            }
+            return @this?.transform.Find(path)?.gameObject;
         }
         public static GameObject TryRemoveComponent<T>(this GameObject @this) where T : Component
         {

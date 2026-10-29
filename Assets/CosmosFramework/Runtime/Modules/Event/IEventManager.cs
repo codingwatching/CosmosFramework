@@ -1,54 +1,52 @@
-﻿using System;
+using System;
 namespace Cosmos.Event
 {
-    public interface IEventManager: IModuleManager
+    //================================================
+    /*
+     * 1、事件中心（reactive）。使用数据类型作为事件的 key。
+     * 2、订阅返回 IDisposable，退订即释放；Observe<T>() 可接 Where / Select / DistinctUntilChanged 等操作符。
+     * 3、线程约定：主线程派发。
+     */
+    //================================================
+    public interface IEventManager : IModuleManager
     {
         /// <summary>
-        /// 当前注册的事件总数；
+        /// 已有订阅者的事件类型数量。
         /// </summary>
-        int EventCount { get ;  }
+        int EventCount { get; }
         /// <summary>
-        /// 添加事件
+        /// 订阅事件；返回的句柄释放即退订。
         /// </summary>
-        /// <param name="eventKey">事件的key，可以是对象，字符</param>
-        /// <param name="handler">事件处理者</param>
-        void AddListener(string eventKey, EventHandler<GameEventArgs> handler);
+        /// <typeparam name="T">事件参数类型</typeparam>
+        /// <param name="handler">处理函数</param>
+        /// <returns>退订句柄</returns>
+        IDisposable Subscribe<T>(Action<T> handler) where T : GameEventArgs;
         /// <summary>
-        /// 移除事件，假如事件在字典中已经为空，则自动注销，无需手动
+        /// 发布事件。
         /// </summary>
-        /// <param name="eventKey">事件的key，可以是对象，字符</param>
-        /// <param name="handler">事件处理者</param>
-        void RemoveListener(string eventKey, EventHandler<GameEventArgs> handler);
+        /// <typeparam name="T">事件参数类型</typeparam>
+        /// <param name="args">事件参数</param>
+        void Publish<T>(T args) where T : GameEventArgs;
         /// <summary>
-        /// 事件分发
+        /// 获取事件流；可接操作符做过滤 / 映射 / 去重。
         /// </summary>
-        /// <param name="sender">事件的触发者</param>
-        /// <param name="args">事件处理类</param>
-        void DispatchEvent(string eventKey, object sender, GameEventArgs args);
+        /// <typeparam name="T">事件参数类型</typeparam>
+        IObservable<T> Observe<T>() where T : GameEventArgs;
         /// <summary>
-        /// 注销并移除事件
+        /// 是否存在该事件类型的订阅者。
         /// </summary>
-       bool DeregisterEvent(string eventKey);
+        bool HasEvent<T>() where T : GameEventArgs;
         /// <summary>
-        /// 在事件中心注册一个空的事件
-        /// 当前设计是为事件的触发者设计，空事件可以使其他订阅者订阅
+        /// 获取事件信息（订阅者数量等）。
         /// </summary>
-        void RegisterEvent(string eventKey);
+        EventInfo GetEventInfo<T>() where T : GameEventArgs;
         /// <summary>
-        /// 清空已经注册的事件
+        /// 移除指定事件类型的全部订阅者。
         /// </summary>
-        void ClearEvent(string eventKey);
+        void RemoveAllEvents<T>() where T : GameEventArgs;
         /// <summary>
-        /// 注销所有除框架以外的事件
+        /// 移除所有事件的订阅者。
         /// </summary>
-        void ClearAllEvent();
-        /// <summary>
-        /// 判断事件是否注册
-        /// </summary>
-        bool HasEvent(string eventKey);
-        /// <summary>
-        /// 获取事件的信息；
-        /// </summary>
-        EventInfo GetEventInfo(string eventKey);
+        void RemoveAllEvents();
     }
 }

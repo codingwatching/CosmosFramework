@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections;
 using System.Collections.Generic;
 namespace Cosmos
@@ -13,6 +13,11 @@ namespace Cosmos
             private AOISkipListNode previous;
             private AOISkipListNode above;
             private AOISkipListNode below;
+            /// <summary>
+            /// 节点所属的跳表；
+            /// 用于 O(1) 判断节点归属，避免按节点删除时沿底层回溯 O(n)。
+            /// </summary>
+            internal AOISkipList<T, K> owner;
             public virtual T Value { get { return value; } set { this.value = value; } }
             public AOISkipListNode Next { get { return next; } set { next = value; } }
             public AOISkipListNode Previous { get { return previous; } set { previous = value; } }
@@ -28,7 +33,8 @@ namespace Cosmos
                 next = null;
                 previous = null;
                 above = null;
-                previous = null;
+                below = null;
+                owner = null;
             }
             public virtual bool IsHeader()
             {
@@ -88,7 +94,12 @@ namespace Cosmos
             nodeCount = 0;
             random = new Random();
         }
-        public void Add(T value)
+        /// <summary>
+        /// 添加节点；
+        /// </summary>
+        /// <param name="value">节点值</param>
+        /// <returns>插入的最底层节点；该节点可用于 O(1) 的身份化删除，返回空表示插入失败</returns>
+        public AOISkipListNode Add(T value)
         {
             //添加流程：
             //1. 投掷硬币，获取到新加入节点的层级
@@ -96,7 +107,8 @@ namespace Cosmos
             //3. 分配查询层级节点
 
             int valueLevel = CoinFlipLevel();
-            int newLevelCount = valueLevel - level;
+            //valueLevel 是最高层索引（0 基），因此需要的层数是 valueLevel + 1
+            int newLevelCount = valueLevel + 1 - level;
             while (newLevelCount > 0)
             {
                 //补全TopLeft节点
@@ -110,6 +122,8 @@ namespace Cosmos
             }
             AOISkipListNode currentNode = topLeft;
             AOISkipListNode lastNodeAbove = null;
+            //循环最后一次创建的节点即最底层节点，保存它用于身份化删除
+            AOISkipListNode lowestNode = null;
             var remainLevel = level - 1;//剩余的层数
 
             while (currentNode != null && remainLevel >= 0)
@@ -129,6 +143,7 @@ namespace Cosmos
                         break;// nextNode节点的值大于等于当前插入的值
                 }
                 var newNode = new AOISkipListNode(value);
+                newNode.owner = this;
                 newNode.Next = currentNode.Next;
                 newNode.Previous = currentNode;
                 newNode.Next.Previous = newNode;
@@ -140,11 +155,21 @@ namespace Cosmos
                     newNode.Above = lastNodeAbove;
                 }
                 lastNodeAbove = newNode;
+                lowestNode = newNode;
 
                 currentNode = currentNode.Below;
                 remainLevel--;
             }
             nodeCount++;
+            return lowestNode;
+        }
+        /// <summary>
+        /// ICollection&lt;T&gt; 的显式实现；
+        /// 泛型接口要求 Add 返回 void，这里转发到返回节点的 Add。
+        /// </summary>
+        void ICollection<T>.Add(T value)
+        {
+            Add(value);
         }
         public void Clear()
         {
@@ -188,7 +213,8 @@ namespace Cosmos
         }
         public bool Remove(AOISkipListNode valueNode)
         {
-            if (valueNode == null)
+            //只允许移除属于本跳表的节点，避免误删其它跳表或游离节点
+            if (!IsNodeBelongs(valueNode))
                 return false;
             else
             {
@@ -211,6 +237,18 @@ namespace Cosmos
                 ClearEmptyLevels();
                 return true;
             }
+        }
+        /// <summary>
+        /// 判断节点是否属于本跳表；
+        /// 节点在创建时记录了所属跳表，因此这里是 O(1) 判断
+        /// </summary>
+        /// <param name="node">待判断的节点</param>
+        /// <returns>是否属于本跳表</returns>
+        bool IsNodeBelongs(AOISkipListNode node)
+        {
+            if (node == null || node.IsHeader() || node.IsFooter())
+                return false;
+            return ReferenceEquals(node.owner, this);
         }
         public AOISkipListNode Find(T value)
         {
@@ -310,12 +348,14 @@ namespace Cosmos
         /// <returns>coin value</returns>
         int CoinFlipLevel()
         {
-            int level = 0;
-            while (random.Next(0, 2) == 1 && level < this.level)//投掷硬币为1时增加一层
+            int valueLevel = 0;
+            //最高层索引可以比当前层数多一层（用于新增顶层），但不得超过 MaxLevels
+            int maxLevelIndex = Math.Min(level, maxLevels - 1);
+            while (valueLevel < maxLevelIndex && random.Next(0, 2) == 1)//投掷硬币为1时增加一层
             {
-                level++;
+                valueLevel++;
             }
-            return level;
+            return valueLevel;
         }
         void ClearEmptyLevels()
         {

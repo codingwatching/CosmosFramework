@@ -1,7 +1,8 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.EventSystems;
+using UnityEngine.UI;
 namespace Cosmos.UI
 {
     /// <summary>
@@ -29,7 +30,7 @@ namespace Cosmos.UI
             set { active = value; }
         }
         /// <inheritdoc/>
-        public virtual int Order { get; set; }
+        public virtual int Priority { get; set; }
         /// <inheritdoc/>
         public object Handle { get { return gameObject; } }
         string uiFormName;
@@ -66,10 +67,14 @@ namespace Cosmos.UI
             gameObject.SetActive(true);
         }
         ///<inheritdoc/>
-        public virtual void OnOrderChange(int index)
+        public virtual void OnPriorityChange(int index)
         {
             transform.SetSiblingIndex(index);
         }
+        ///<inheritdoc/>
+        public virtual void OnFocusGained() { }
+        ///<inheritdoc/>
+        public virtual void OnFocusLost() { }
         ///<inheritdoc/>
         public virtual void OnClose()
         {
@@ -81,6 +86,7 @@ namespace Cosmos.UI
             Utility.Debug.LogInfo($"{UIFormName} OnRelease");
         }
         protected bool HasLabel<T>(string lableName)
+            where T : Component
         {
             if (uiLabelDict.ContainsKey(lableName))
                 return true;
@@ -131,5 +137,7 @@ namespace Cosmos.UI
             }
             return comp;
         }
+
+
     }
 }

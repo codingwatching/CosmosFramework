@@ -4,6 +4,9 @@ using System.Linq;
 using System.IO;
 using UnityEngine;
 using UnityEditor;
+using System.Collections;
+using System.Text;
+
 namespace Cosmos.Editor
 {
     public static partial class EditorUtil
@@ -38,7 +41,7 @@ namespace Cosmos.Editor
         public static readonly Vector2 MaxWinSize = new Vector2(768f, 768f);
 
         /// <summary>
-        ///获取项目的目录，即Assets文件夹的上一层； 
+        ///获取项目的目录，即Assets文件夹的上一层。
         /// </summary>
         public static string ApplicationPath()
         {
@@ -61,19 +64,18 @@ namespace Cosmos.Editor
                       }).OfType<T>().ToArray();
         }
         /// <summary>
-        /// 写入方式为覆写；
-        /// 对象数据会被存储为json；
+        /// 写入方式为覆写，对象数据会被存储为json。
         /// </summary>
         public static void SaveData<T>(string fileName, T editorData)
             where T : class, new()
         {
-            var json = EditorUtil.Json.ToJson(editorData, true);
+            var json = EditorUtil.Json.ToJson(editorData);
             Utility.IO.OverwriteTextFile(LibraryPath, fileName, json);
         }
         public static void SaveData<T>(string relativePath, string fileName, T editorData)
             where T : class, new()
         {
-            var json = EditorUtil.Json.ToJson(editorData, true);
+            var json = EditorUtil.Json.ToJson(editorData);
             var path = Path.Combine(LibraryPath, relativePath);
             Utility.IO.OverwriteTextFile(path, fileName, json);
         }
@@ -109,13 +111,22 @@ namespace Cosmos.Editor
             }
             return data;
         }
+        public static void SaveText(string fileName, string content)
+        {
+            Utility.IO.OverwriteTextFile(LibraryPath, fileName, content);
+        }
+        public static string GetText(string fileName)
+        {
+            var filePath = Utility.IO.PathCombine(LibraryPath, fileName);
+            return Utility.IO.ReadTextFileContent(filePath);
+        }
         public static void ClearData(string fileName)
         {
             var filePath = Utility.IO.PathCombine(LibraryPath, fileName);
             Utility.IO.DeleteFile(filePath);
         }
         /// <summary>
-        /// 定位目标路径在Assets下的位置；
+        /// 定位目标路径在Assets下的位置。
         /// </summary>
         /// <param name="path">目标路径</param>
         public static void PingAndActiveObject(string path)
@@ -130,7 +141,7 @@ namespace Cosmos.Editor
             Selection.activeObject = obj;
         }
         /// <summary>
-        /// 添加单个宏；此宏不能由分号结尾；
+        /// 添加单个宏，此宏不能由分号结尾。
         /// </summary>
         /// <param name="define">宏定义</param>
         /// <returns>是否添加成功</returns>
@@ -147,7 +158,7 @@ namespace Cosmos.Editor
             return true;
         }
         /// <summary>
-        /// 移除单个宏；此宏不能由分号结尾；
+        /// 移除单个宏，此宏不能由分号结尾。
         /// </summary>
         /// <param name="define">宏定义</param>
         /// <returns>是否移除成功</returns>
@@ -165,40 +176,25 @@ namespace Cosmos.Editor
             return true;
         }
         /// <summary>
-        /// 获取在build列表中场景的文件地址；
+        /// 获取在build列表中场景的文件地址
         /// </summary>
         /// <returns>场景文件的地址列表</returns>
-        public static string[] GetScenesInBuildsPath()
+        public static string[] GetEditorScenesPath()
         {
             var scenes = EditorBuildSettings.scenes;
             return scenes.Select(s => s.path).ToArray();
         }
         /// <summary>
-        /// 过滤字段，过滤绝对路径到Assets目录下的相对路径；
+        /// 获取在build列表中enable状态的场景的文件地址
         /// </summary>
-        /// <param name="src">绝对路径</param>
-        /// <returns>过滤后的地址</returns>
-        public static string FilterApplicationDataPath(string src)
+        /// <returns>场景文件的地址列表</returns>
+        public static string[] GetEditorEnabledScenesPath()
         {
-            return src.Remove(0, Application.dataPath.Length - 6);
-        }
-        public static string GetAssetFileSize(string assetPath)
-        {
-            if (!assetPath.StartsWith("Assets"))
-                return Constants.NULL;
-            var fullPath = Path.Combine(ApplicationPath(), assetPath);
-            var len = Utility.IO.GetFileSize(fullPath);
-            return EditorUtility.FormatBytes(len);
-        }
-        public static long GetAssetFileSizeLength(string assetPath)
-        {
-            if (!assetPath.StartsWith("Assets"))
-                return 0;
-            var fullPath = Path.Combine(ApplicationPath(), assetPath);
-            return Utility.IO.GetFileSize(fullPath);
+            var scenes = EditorBuildSettings.scenes;
+            return scenes.Where(s => s.enabled).Select(s => s.path).ToArray();
         }
         /// <summary>
-        /// 获取文件夹中文件的总体大小；
+        /// 获取文件夹中文件的总体大小
         /// </summary>
         /// <param name="path">路径</param>
         /// <param name="availableExtes">可识别的后缀名</param>
@@ -222,6 +218,14 @@ namespace Cosmos.Editor
             }
             return totalSize;
         }
+        /// <summary>
+        /// 生成一个ScriptableObject对象
+        /// <para>path地址应传入Assets/MyObject.asset。如果传入的是Assets/MyObject，此方法会自动补全.asset的文件后缀</para>
+        /// </summary>
+        /// <typeparam name="T">ScriptableObject对象</typeparam>
+        /// <param name="path">Assets/下的地址，如: Assets/MyObject.asset。传入Assets/MyObject也可，函数会自动补全.asset后缀名</param>
+        /// <param name="hideFlags">状态类型</param>
+        /// <returns>生成的ScriptableObject</returns>
         public static T CreateScriptableObject<T>(string path, HideFlags hideFlags = HideFlags.None) where T : ScriptableObject
         {
             var dir = Path.GetDirectoryName(path);
@@ -232,6 +236,8 @@ namespace Cosmos.Editor
                 AssetDatabase.CreateFolder("Assets", folderName);
             var so = ScriptableObject.CreateInstance<T>();
             so.hideFlags = hideFlags;
+            if (!path.EndsWith(".asset"))
+                path = path + ".asset";
             AssetDatabase.CreateAsset(so, path);
             EditorUtility.SetDirty(so);
             EditorUtility.FocusProjectWindow();
@@ -259,18 +265,26 @@ namespace Cosmos.Editor
         /// <summary>
         ///  获取编辑渲染使用的hander数组。
         ///  默认首个元素为<see cref="Constants.NONE"/>
+        ///  <para>结果按类型缓存：反射扫描整个 AppDomain 很贵，而 Inspector 每次选中都会调用；
+        ///  脚本重编译会触发域重载，静态缓存随之清空，因此不会脏。</para>
         /// </summary>
         /// <typeparam name="T">基类</typeparam>
+        /// <param name="reload">是否强制重新扫描</param>
         /// <returns>handler数组</returns>
-        public static string[] GetDerivedTypeHandlers<T>()
+        public static string[] GetDerivedTypeHandlers<T>(bool reload = false)
             where T : class
         {
+            var type = typeof(T);
+            if (!reload && derivedTypeHandlerCache.TryGetValue(type, out var cached))
+                return cached;
             var srcBuildHandlers = Utility.Assembly.GetDerivedTypeNames<T>();
             var buildHandlers = new string[srcBuildHandlers.Length + 1];
             buildHandlers[0] = Constants.NONE;
             Array.Copy(srcBuildHandlers, 0, buildHandlers, 1, srcBuildHandlers.Length);
+            derivedTypeHandlerCache[type] = buildHandlers;
             return buildHandlers;
         }
+        static readonly Dictionary<Type, string[]> derivedTypeHandlerCache = new Dictionary<Type, string[]>();
         /// <summary>
         /// 选择工程的相对路径
         /// </summary>
@@ -292,5 +306,84 @@ namespace Cosmos.Editor
             }
             return selectedRelativePath;
         }
+
+        /// <summary>
+        /// 遍历文件夹下的文件。传入的文件夹名参考：Assets/Game。
+        /// </summary>
+        /// <param name="folder">文件夹名</param>
+        /// <param name="handler">处理方法</param>
+        public static void TraverseFolderFile(string folder, Action<UnityEngine.Object> handler)
+        {
+            if (string.IsNullOrEmpty(folder))
+                throw new ArgumentNullException("Folder Name is invalid !");
+            if (handler == null)
+                throw new ArgumentNullException("Handler is invalid !");
+            if (AssetDatabase.IsValidFolder(folder))
+            {
+                var assets = GetAllAssets<UnityEngine.Object>(folder);
+                if (assets != null)
+                {
+                    var length = assets.Length;
+                    for (int i = 0; i < length; i++)
+                    {
+                        handler.Invoke(assets[i]);
+                    }
+                }
+                var subFolders = AssetDatabase.GetSubFolders(folder);
+                if (subFolders != null)
+                {
+                    foreach (var subF in subFolders)
+                    {
+                        TraverseFolderFile(subF, handler);
+                    }
+                }
+            }
+        }
+        /// <summary>
+        /// 遍历assets目录下的所有文件
+        /// </summary>
+        /// <param name="handler">遍历回调</param>
+        public static void TraverseAllFolderFile(Action<UnityEngine.Object> handler)
+        {
+            if (handler == null)
+                throw new ArgumentNullException("Handler is invalid !");
+            var assets = GetAllAssets<UnityEngine.Object>("Assets");
+            if (assets != null)
+            {
+                var length = assets.Length;
+                for (int i = 0; i < length; i++)
+                {
+                    handler.Invoke(assets[i]);
+                }
+            }
+            var subFolder = AssetDatabase.GetSubFolders("Assets");
+            if (subFolder != null)
+            {
+                foreach (var subF in subFolder)
+                {
+                    TraverseFolderFile(subF, handler);
+                }
+            }
+        }
+
+        #region EditorCoroutine
+        /// <summary>
+        /// EditorCoroutine 嵌套协程无法识别 yield return IEnumerator；
+        /// 嵌套协程尽量使用yield return EditorCoroutine；
+        /// </summary>
+        public static Cosmos.Unity.EditorCoroutines.Editor.EditorCoroutine StartCoroutine(IEnumerator coroutine)
+        {
+            return Cosmos.Unity.EditorCoroutines.Editor.EditorCoroutineUtility.StartCoroutineOwnerless(coroutine);
+        }
+        public static void StopCoroutine(Cosmos.Unity.EditorCoroutines.Editor.EditorCoroutine coroutine)
+        {
+            Cosmos.Unity.EditorCoroutines.Editor.EditorCoroutineUtility.StopCoroutine(coroutine);
+        }
+        public static void StopCoroutine(IEnumerator coroutine)
+        {
+            Cosmos.Unity.EditorCoroutines.Editor.EditorCoroutineUtility.StartCoroutineOwnerless(coroutine);
+        }
+        #endregion
+
     }
 }

@@ -1,7 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.RegularExpressions;
 namespace Cosmos
 {
     public static partial class Utility
@@ -12,7 +14,19 @@ namespace Cosmos
             /// 每个静态类型字段对于每一个线程都是唯一的
             /// </summary>
             [ThreadStatic]
-            static StringBuilder stringBuilderCache = new StringBuilder(1024);
+            static StringBuilder stringBuilderCache;
+            /// <summary>
+            /// 当前线程的缓存。<para>[ThreadStatic] 的字段初始值只在首个线程上执行，其它线程首次使用需自行创建</para>
+            /// </summary>
+            static StringBuilder StringBuilderCache
+            {
+                get
+                {
+                    if (stringBuilderCache == null)
+                        stringBuilderCache = new StringBuilder(1024);
+                    return stringBuilderCache;
+                }
+            }
             static char[] stringConstant ={
             '0','1','2','3','4','5','6','7','8','9',
             'a','b','c','d','e','f','g','h','i','j','k','l','m','n','o','p','q','r','s','t','u','v','w','x','y','z',
@@ -25,13 +39,13 @@ namespace Cosmos
             /// <returns>生成的随机字符串</returns>
             public static string GenerateRandomString(int length)
             {
-                stringBuilderCache.Clear();
+                StringBuilderCache.Clear();
                 Random rd = new Random();
                 for (int i = 0; i < length; i++)
                 {
-                    stringBuilderCache.Append(stringConstant[rd.Next(62)]);
+                    StringBuilderCache.Append(stringConstant[rd.Next(62)]);
                 }
-                return stringBuilderCache.ToString();
+                return StringBuilderCache.ToString();
             }
             /// <summary>
             /// 格式化合并
@@ -44,13 +58,13 @@ namespace Cosmos
                 {
                     throw new ArgumentNullException("Append is invalid.");
                 }
-                stringBuilderCache.Clear();
+                StringBuilderCache.Clear();
                 int length = args.Length;
                 for (int i = 0; i < length; i++)
                 {
-                    stringBuilderCache.Append(args[i]);
+                    StringBuilderCache.Append(args[i]);
                 }
-                return stringBuilderCache.ToString();
+                return StringBuilderCache.ToString();
             }
             /// <summary>
             /// 字段合并
@@ -61,13 +75,13 @@ namespace Cosmos
             {
                 if (strings == null)
                     throw new ArgumentNullException("Combine is invalid.");
-                stringBuilderCache.Length = 0;
+                StringBuilderCache.Length = 0;
                 int length = strings.Length;
                 for (int i = 0; i < length; i++)
                 {
-                    stringBuilderCache.Append(strings[i]);
+                    StringBuilderCache.Append(strings[i]);
                 }
-                return stringBuilderCache.ToString();
+                return StringBuilderCache.ToString();
             }
             /// <summary>
             /// 字段合并
@@ -78,12 +92,12 @@ namespace Cosmos
             {
                 if (strings == null)
                     throw new ArgumentNullException("Combine is invalid.");
-                stringBuilderCache.Clear();
+                StringBuilderCache.Clear();
                 foreach (var str in strings)
                 {
-                    stringBuilderCache.Append(str);
+                    StringBuilderCache.Append(str);
                 }
-                return stringBuilderCache.ToString();
+                return StringBuilderCache.ToString();
             }
             /// <summary>
             /// 是否是一串数字类型的string
@@ -103,66 +117,66 @@ namespace Cosmos
             /// <summary>
             /// 分割字符串
             /// </summary>
-            /// <param name="fullString">完整字段</param>
+            /// <param name="context">完整字段</param>
             /// <param name="separator">new string[]{"."}</param>
             /// <param name="removeEmptyEntries">是否返回分割后数组中的空元素</param>
             /// <param name="subStringIndex">分割后数组的序号</param>
             /// <returns>分割后的字段</returns>
-            public static string StringSplit(string fullString, string[] separator, bool removeEmptyEntries, int subStringIndex)
+            public static string StringSplit(string context, string[] separator, bool removeEmptyEntries, int subStringIndex)
             {
                 string[] stringArray = null;
                 if (removeEmptyEntries)
-                    stringArray = fullString.Split(separator, StringSplitOptions.RemoveEmptyEntries);
+                    stringArray = context.Split(separator, StringSplitOptions.RemoveEmptyEntries);
                 else
-                    stringArray = fullString.Split(separator, StringSplitOptions.None);
+                    stringArray = context.Split(separator, StringSplitOptions.None);
                 string subString = stringArray[subStringIndex];
                 return subString;
             }
             /// <summary>
             /// 分割字符串
             /// </summary>
-            /// <param name="fullString">完整字段</param>
+            /// <param name="context">完整字段</param>
             /// <param name="separator">new string[]{"."}</param>
             /// <param name="count">要返回的子字符串的最大数量</param>
             /// <param name="removeEmptyEntries">是否移除空实体</param>
             /// <returns>分割后的字段</returns>
-            public static string StringSplit(string fullString, string[] separator, int count, bool removeEmptyEntries)
+            public static string StringSplit(string context, string[] separator, int count, bool removeEmptyEntries)
             {
                 string[] stringArray = null;
                 if (removeEmptyEntries)
-                    stringArray = fullString.Split(separator, count, StringSplitOptions.RemoveEmptyEntries);
+                    stringArray = context.Split(separator, count, StringSplitOptions.RemoveEmptyEntries);
                 else
-                    stringArray = fullString.Split(separator, count, StringSplitOptions.None);
+                    stringArray = context.Split(separator, count, StringSplitOptions.None);
                 return stringArray.ToString();
             }
             /// <summary>
             /// 分割字符串
             /// </summary>
-            /// <param name="fullString">分割字符串</param>
+            /// <param name="context">分割字符串</param>
             /// <param name="separator">new string[]{"."}</param>
             /// <returns>分割后的字段数组</returns>
-            public static string[] StringSplit(string fullString, string[] separator)
+            public static string[] StringSplit(string context, string[] separator)
             {
                 string[] stringArray = null;
-                stringArray = fullString.Split(separator, StringSplitOptions.None);
+                stringArray = context.Split(separator, StringSplitOptions.None);
                 return stringArray;
             }
             /// <summary>
             /// 检测字段中指定类型的字符数量
             /// </summary>
-            /// <param name="fullString">完整字段</param>
+            /// <param name="context">完整字段</param>
             /// <param name="separator">符号</param>
             /// <returns>数量</returns>
-            public static int CharCount(string fullString, char separator)
+            public static int CharCount(string context, char separator)
             {
-                if (string.IsNullOrEmpty(fullString) || string.IsNullOrEmpty(separator.ToString()))
+                if (string.IsNullOrEmpty(context) || string.IsNullOrEmpty(separator.ToString()))
                 {
                     throw new ArgumentNullException("charCount \n string invaild!");
                 }
                 int count = 0;
-                for (int i = 0; i < fullString.Length; i++)
+                for (int i = 0; i < context.Length; i++)
                 {
-                    if (fullString[i] == separator)
+                    if (context[i] == separator)
                     {
                         count++;
                     }
@@ -170,15 +184,31 @@ namespace Cosmos
                 return count;
             }
             /// <summary>
-            /// 字段长度
+            /// 匹配字符串，循环更快，适合需要处理大量字符串或重复多次操作的场景。
             /// </summary>
-            /// <param name="context">文本内容</param>
-            /// <returns>字段长度</returns>
-            public static int StringLength(string context)
+            /// <param name="context">传入的内容</param>
+            /// <param name="word">检测的内容</param>
+            /// <returns>匹配到的数量</returns>
+            public static int SubstringCountg(string context, string word)
             {
-                if (string.IsNullOrEmpty(context))
-                    throw new ArgumentNullException("context is invalid.");
-                return context.Length;
+                int count = 0;
+                int index = 0;
+                while ((index = context.IndexOf(word, index)) != -1)
+                {
+                    count++;
+                    index += word.Length;
+                }
+                return count;
+            }
+            /// <summary>
+            /// 匹配字符串，适合复杂的文本匹配或需要使用正则表达式的地方。
+            /// </summary>
+            /// <param name="context">传入的内容</param>
+            /// <param name="word">检测的内容</param>
+            /// <returns>匹配到的数量</returns>
+            public static int SubstringCountWithRegex(string context, string word)
+            {
+                return Regex.Matches(context, Regex.Escape(word)).Count;
             }
             /// <summary>
             /// 获取内容在UTF8编码下的字节长度。
@@ -249,6 +279,24 @@ namespace Cosmos
                     context = context.Replace(oldContext[i], newContext);
                 }
                 return context;
+            }
+            /// <summary>
+            /// 检测一段文本是否只为英文字母
+            /// </summary>
+            /// <param name="context">文本</param>
+            /// <returns>是否只为英文字母</returns>
+            public static bool IsLetterOnly(string context)
+            {
+                return context.All(char.IsLetter);
+            }
+            /// <summary>
+            /// 检测一段文本是否为英文字母与数字
+            /// </summary>
+            /// <param name="context">文本</param>
+            /// <returns>是否只为英文字母与数字</returns>
+            public static bool IsLetterOrDigit(string context)
+            {
+                return context.All(char.IsLetterOrDigit);
             }
         }
     }

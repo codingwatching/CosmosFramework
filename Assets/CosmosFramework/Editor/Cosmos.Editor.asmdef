@@ -1,0 +1,19 @@
+{
+    "name": "Cosmos.Editor",
+    "references": [
+        "Cosmos.Runtime",
+        "Cosmos.Resource.Abstractions",
+        "Cosmos.Async"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
+using MessagePack;
 using Protocol;
 using UnityEngine;
 namespace Cosmos.Lockstep
@@ -15,9 +16,9 @@ namespace Cosmos.Lockstep
             comp.Init(authorityConv, true);
             compDict.TryAdd(authorityConv, comp);
             go.AddComponent<MultiplayInputComponent>();
-            if (GameEntry.ControllerManager.GetController("LockstepCamera", out var controller))
+            if (LockstepCamera.Instance != null)
             {
-                controller.Handle.CastTo<LockstepCamera>().SetTransformTarget(comp.transform);
+                LockstepCamera.Instance.SetTransformTarget(comp.transform);
             }
         }
         public void OnMultiplayInput(Dictionary<int, List<byte[]>> inputs)
@@ -28,7 +29,7 @@ namespace Cosmos.Lockstep
                 var length = ipt.Value.Count;
                 for (int i = 0; i < length; i++)
                 {
-                    comp.OnTickInput(Utility.MessagePack.Deserialize<OpInput>(ipt.Value[i]));
+                    comp.OnTickInput(MessagePackSerializer.Deserialize<OpInput>(ipt.Value[i]));
                 }
             }
         }
@@ -49,9 +50,9 @@ namespace Cosmos.Lockstep
         }
         public void OnMulitplayDisconnected()
         {
-            if (GameEntry.ControllerManager.GetController("Camera", out var controller))
+            if (LockstepCamera.Instance != null)
             {
-                controller.Handle.CastTo<LockstepCamera>().Clear();
+                LockstepCamera.Instance.Clear();
             }
             foreach (var comp in compDict)
             {

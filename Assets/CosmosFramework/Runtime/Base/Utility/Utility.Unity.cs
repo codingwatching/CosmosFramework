@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Linq;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -34,7 +34,7 @@ namespace Cosmos
 
             #region Application
             /// <summary>
-            /// 退出。editor停止播放，runtime则退出游戏
+            /// 退出。editor停止播放，runtime退出游戏
             /// </summary>
             public static void Quit()
             {
@@ -69,7 +69,7 @@ namespace Cosmos
                 where K : IComparable<K>
                 where T : Component
             {
-                Utility.Algorithm.SortByAscend(comps, handler);
+                Utility.Algorithm.SortByAscending(comps, handler);
                 var length = comps.Length;
                 for (int i = 0; i < length; i++)
                 {
@@ -87,7 +87,7 @@ namespace Cosmos
         where K : IComparable<K>
         where T : Component
             {
-                Utility.Algorithm.SortByDescend(comps, handler);
+                Utility.Algorithm.SortByDescending(comps, handler);
                 var length = comps.Length;
                 for (int i = 0; i < length; i++)
                 {
@@ -113,19 +113,34 @@ namespace Cosmos
             public static Texture2D CameraScreenshotAsTexture(Camera camera, TextureFormat textureFormat)
             {
                 var oldRenderTexture = camera.targetTexture;
+                var oldActiveRenderTexture = RenderTexture.active;
                 var width = camera.pixelWidth;
                 var height = camera.pixelHeight;
-                RenderTexture renderTexture;
-                renderTexture = new RenderTexture(width, height, 24);
-                camera.targetTexture = renderTexture;
-                camera.Render();
-                Texture2D texture2D = new Texture2D(width, height, textureFormat, false);
-                RenderTexture.active = renderTexture;
-                texture2D.ReadPixels(new Rect(0, 0, width, height), 0, 0);
-                texture2D.Apply();
-                RenderTexture.active = null;
-                camera.targetTexture = oldRenderTexture;
-                return texture2D;
+                RenderTexture renderTexture = new RenderTexture(width, height, 24);
+                Texture2D texture2D = null;
+                try
+                {
+                    camera.targetTexture = renderTexture;
+                    camera.Render();
+                    texture2D = new Texture2D(width, height, textureFormat, false);
+                    RenderTexture.active = renderTexture;
+                    texture2D.ReadPixels(new Rect(0, 0, width, height), 0, 0);
+                    texture2D.Apply();
+                    return texture2D;
+                }
+                catch
+                {
+                    if (texture2D != null)
+                        UnityEngine.Object.Destroy(texture2D);
+                    throw;
+                }
+                finally
+                {
+                    RenderTexture.active = oldActiveRenderTexture;
+                    camera.targetTexture = oldRenderTexture;
+                    renderTexture.Release();
+                    UnityEngine.Object.Destroy(renderTexture);
+                }
             }
             /// <summary>
             /// 通过相机截取屏幕并转换为Sprite
@@ -342,6 +357,25 @@ namespace Cosmos
                 CoroutineHelper.RemoveConditionTask(taskId);
             }
             /// <summary>
+            /// 添加等待帧任务
+            /// </summary>
+            /// <param name="frameType">帧类型</param>
+            /// <param name="action">触发的事件</param>
+            /// <param name="frameCount">帧数</param>
+            /// <returns>任务Id</returns>
+            public static long AddFrameTask(FrameType frameType, Action action, long frameCount = 1)
+            {
+                return CoroutineHelper.AddFrameTask(frameType, action, frameCount);
+            }
+            /// <summary>
+            /// 移除等待帧数任务，能够通过taslId识别任务类型。
+            /// </summary>
+            /// <param name="taskId">任务Id</param>
+            public static void RemoveFrameTask(long taskId)
+            {
+                CoroutineHelper.RemoveFrameTask(taskId);
+            }
+            /// <summary>
             /// 添加协程事件任务，每个任务之间完成会相隔一帧
             /// </summary>
             /// <param name="action">事件</param>
@@ -539,8 +573,8 @@ namespace Cosmos
             }
             public static void DrawEllipseXY(Vector3 center, float xScale, float yScale, int ellipseSegment)
             {
-                if (ellipseSegment < 0)
-                    ellipseSegment = 0;
+                if (ellipseSegment <= 0)
+                    return;
                 if (xScale < 0)
                     xScale = 0;
                 if (yScale < 0)
@@ -562,8 +596,8 @@ namespace Cosmos
             }
             public static void DrawEllipseXZ(Vector3 center, float xScale, float yScale, int ellipseSegment)
             {
-                if (ellipseSegment < 0)
-                    ellipseSegment = 0;
+                if (ellipseSegment <= 0)
+                    return;
                 if (xScale < 0)
                     xScale = 0;
                 if (yScale < 0)
@@ -586,8 +620,8 @@ namespace Cosmos
             }
             public static void DrawEllipseYZ(Vector3 center, float xScale, float yScale, int ellipseSegment)
             {
-                if (ellipseSegment < 0)
-                    ellipseSegment = 0;
+                if (ellipseSegment <= 0)
+                    return;
                 if (xScale < 0)
                     xScale = 0;
                 if (yScale < 0)
@@ -857,7 +891,7 @@ namespace Cosmos
             public static bool IsSceneLoaded(string sceneName)
             {
                 var scene = SceneManager.GetSceneByName(sceneName);
-                if (scene != null)
+                if (scene.IsValid())
                 {
                     return scene.isLoaded;
                 }

@@ -1,114 +1,86 @@
-﻿using System.Collections.Generic;
 using System;
+using System.Collections.Generic;
+using Cosmos.Reactive;
 namespace Cosmos.Event
 {
     //================================================
     /*
-     * 1、事件中心；
+     * 1、事件中心（reactive）。使用数据类型作为事件的 key。
+     * 2、每个事件类型对应一个 Subject<T>：订阅返回 IDisposable，退订即释放。
+     * 3、Observe<T>() 暴露事件流，可接 Where / Select / DistinctUntilChanged 等操作符。
      */
     //================================================
-    [Module]
-    internal sealed partial class EventManager : Module, IEventManager
+    [Module(Priority = ModuleConstant.PRIORITY_EVENT)]
+    internal sealed class EventManager : Module, IEventManager
     {
-        Dictionary<string, EventNode> eventDict;
+        /// <summary>
+        /// 事件类型 === Subject&lt;T&gt;；
+        /// </summary>
+        readonly Dictionary<Type, object> subjectDict = new Dictionary<Type, object>();
         ///<inheritdoc/>
-        public int EventCount { get { return eventDict.Count; } }
+        public int EventCount { get { return subjectDict.Count; } }
         ///<inheritdoc/>
-        public void AddListener(string eventKey, EventHandler<GameEventArgs> handler)
+        public IDisposable Subscribe<T>(Action<T> handler)
+            where T : GameEventArgs
         {
-            if (string.IsNullOrEmpty(eventKey))
-                throw new ArgumentNullException("EventKey is invalid !");
-            if (eventDict.ContainsKey(eventKey))
-            {
-                eventDict[eventKey].EventHandler += handler;
-            }
-            else
-            {
-                eventDict.TryAdd(eventKey, new EventNode());
-                eventDict[eventKey].EventHandler += handler;
-            }
+            if (handler == null)
+                throw new ArgumentNullException("Handler is invalid !");
+            return GetSubject<T>().Subscribe(handler);
         }
         ///<inheritdoc/>
-        public void RemoveListener(string eventKey, EventHandler<GameEventArgs> handler)
+        public void Publish<T>(T args)
+            where T : GameEventArgs
         {
-            if (string.IsNullOrEmpty(eventKey))
-                throw new ArgumentNullException("EventKey is invalid !");
-            if (eventDict.TryGetValue(eventKey, out var node))
-            {
-                node.EventHandler -= handler;
-                if (node.ListenerCount <= 0)
-                {
-                    eventDict.Remove(eventKey);
-                }
-            }
+            if (args == null)
+                throw new ArgumentNullException("EventArgs is invalid !");
+            if (subjectDict.TryGetValue(typeof(T), out var subject))
+                ((Subject<T>)subject).OnNext(args);
         }
         ///<inheritdoc/>
-        public void DispatchEvent(string eventKey, object sender, GameEventArgs args)
+        public IObservable<T> Observe<T>()
+            where T : GameEventArgs
         {
-            if (string.IsNullOrEmpty(eventKey))
-                throw new ArgumentNullException("EventKey is invalid !");
-            if (eventDict.TryGetValue(eventKey, out var node))
-            {
-                eventDict[eventKey].DispatchEvent(sender, args);
-            }
+            return GetSubject<T>();
         }
         ///<inheritdoc/>
-        public bool DeregisterEvent(string eventKey)
+        public bool HasEvent<T>()
+            where T : GameEventArgs
         {
-            if (string.IsNullOrEmpty(eventKey))
-                throw new ArgumentNullException("EventKey is invalid !");
-            return eventDict.Remove(eventKey);
+            return subjectDict.TryGetValue(typeof(T), out var subject) && ((Subject<T>)subject).ObserverCount > 0;
         }
         ///<inheritdoc/>
-        public void RegisterEvent(string eventKey)
+        public EventInfo GetEventInfo<T>()
+            where T : GameEventArgs
         {
-            if (string.IsNullOrEmpty(eventKey))
-                throw new ArgumentNullException("EventKey is invalid !");
-            if (!eventDict.ContainsKey(eventKey))
-            {
-                eventDict.TryAdd(eventKey, new EventNode());
-            }
-        }
-        ///<inheritdoc/>
-        public void ClearEvent(string eventKey)
-        {
-            if (string.IsNullOrEmpty(eventKey))
-                throw new ArgumentNullException("EventKey is invalid !");
-            if (eventDict.TryGetValue(eventKey, out var node))
-            {
-                node.Clear();
-            }
-        }
-        ///<inheritdoc/>
-        public void ClearAllEvent()
-        {
-            foreach (var node in eventDict)
-            {
-                node.Value.Clear();
-            }
-            eventDict.Clear();
-        }
-        ///<inheritdoc/>
-        public bool HasEvent(string eventKey)
-        {
-            if (string.IsNullOrEmpty(eventKey))
-                throw new ArgumentNullException("EventKey is invalid !");
-            return eventDict.ContainsKey(eventKey);
-        }
-        ///<inheritdoc/>
-        public EventInfo GetEventInfo(string eventKey)
-        {
-            if (string.IsNullOrEmpty(eventKey))
-                throw new ArgumentNullException("EventKey is invalid !");
-            if (eventDict.TryGetValue(eventKey, out var node))
-            {
-                return EventInfo.Create(eventKey, node.ListenerCount);
-            }
+            if (subjectDict.TryGetValue(typeof(T), out var subject))
+                return EventInfo.Create(typeof(T), ((Subject<T>)subject).ObserverCount);
             return EventInfo.Default;
         }
-        protected override void OnInitialization()
+        ///<inheritdoc/>
+        public void RemoveAllEvents<T>()
+            where T : GameEventArgs
         {
-            eventDict = new Dictionary<string, EventNode>();
+            if (subjectDict.Remove(typeof(T), out var subject))
+                ((Subject<T>)subject).Dispose();
+        }
+        ///<inheritdoc/>
+        public void RemoveAllEvents()
+        {
+            foreach (var subject in subjectDict.Values)
+            {
+                (subject as IDisposable)?.Dispose();
+            }
+            subjectDict.Clear();
+        }
+        Subject<T> GetSubject<T>()
+            where T : GameEventArgs
+        {
+            if (!subjectDict.TryGetValue(typeof(T), out var subject))
+            {
+                subject = new Subject<T>();
+                subjectDict.Add(typeof(T), subject);
+            }
+            return (Subject<T>)subject;
         }
     }
 }

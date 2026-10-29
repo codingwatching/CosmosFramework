@@ -203,7 +203,7 @@ namespace Cosmos
                 firstSource = first.ToList();
             var secondSource = second as ICollection<T2>;
             if (secondSource == null)
-                second.ToList();
+                secondSource = second.ToList();
             var add = firstSource.ExceptBy(secondSource, condition).ToList();
             var remove = secondSource.ExceptBy(firstSource, (s, f) => condition(f, s)).ToList();
             var update = firstSource.IntersectBy(secondSource, condition).ToList();
@@ -222,6 +222,20 @@ namespace Cosmos
         public static IEnumerable<TFirst> IntersectBy<TFirst, TSecond>(this IEnumerable<TFirst> first, IEnumerable<TSecond> second, Func<TFirst, TSecond, bool> condition)
         {
             return first.Where(f => second.Any(s => condition(f, s)));
+        }
+        /// <summary>
+        /// 根据字段进行去重
+        /// </summary>
+        public static IEnumerable<T> DistinctBy<T, TKey>(this IEnumerable<T> source, Func<T, TKey> keySelector)
+        {
+            HashSet<TKey> seenKeys = new HashSet<TKey>();
+            foreach (T element in source)
+            {
+                if (seenKeys.Add(keySelector(element)))
+                {
+                    yield return element;
+                }
+            }
         }
     }
 }
